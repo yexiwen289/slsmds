@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+game_records/
+tui_settings.json
