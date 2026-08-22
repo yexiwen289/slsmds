@@ -3493,7 +3493,7 @@ class Game:
             llm_client=self.players[0].llm_client,
             model_name=self.players[0].model_name,
             caller_tag="整合意识-涌现",
-            target_experts=getattr(self, "amplification_target", 100),
+            target_experts=getattr(self, "amplification_target", 2000),
         )
         if response:
             return response
@@ -3506,7 +3506,7 @@ class Game:
         checkpoint = {
             "version": 4,
             "engine_version": 4,
-            "amplification_target": getattr(self, "amplification_target", 100),
+            "amplification_target": getattr(self, "amplification_target", 2000),
             "problem": self.problem,
             "discussion_mode": self.discussion_mode,
             "round_count": self.round_count,
@@ -3777,7 +3777,7 @@ class Game:
         game.is_self_awareness_cultivation = data.get("is_self_awareness_cultivation", False)
         game.total_rounds = data.get("total_rounds", None)
         # 恢复超级相变引擎参数（兼容旧断点）
-        game.amplification_target = data.get("amplification_target", 100)
+        game.amplification_target = data.get("amplification_target", 2000)
         # 同步到所有专家
         for p in game.players:
             p.enable_self_awareness = game.enable_self_awareness
@@ -3830,7 +3830,7 @@ class Game:
         print(f"   当前进度: 第{game.round_count}轮, 精华池{len(game.essence_pool.items)}条")
         # 超级相变引擎状态
         n_real = len(game.discussion_history) + len(game.essence_pool.items)
-        amp_target = getattr(game, "amplification_target", 100)
+        amp_target = getattr(game, "amplification_target", 2000)
         print(f"   超级相变引擎: {n_real} 个真实样本 → {amp_target} 虚拟专家 (放大 {amp_target/max(n_real,1):.1f}x)")
         return game
 

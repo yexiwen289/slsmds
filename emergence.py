@@ -992,37 +992,123 @@ class VirtualExpertGenerator:
         # 现在有 100 个专家的效果
     """
 
-    # 认知维度映射到发言模板
+    # 认知维度映射到发言模板（多变体，高质量）
     _SPEECH_TEMPLATES = {
-        "high_coherence": "从系统论的角度来看，这个问题本质上是一个多层次、多变量的复杂系统问题，需要我们用整体性思维来把握各要素之间的耦合关系。",
-        "mid_coherence": "经过分析，我认为这个问题可以从多个角度来理解，每个角度都有其合理性。",
-        "low_coherence": "我觉得这个问题比较复杂，需要从多个方面综合来看待。",
+        # ── 连贯性/逻辑性 ──
+        "high_coherence": [
+            "从系统论的角度来看，这个问题本质上是一个多层次、多变量的复杂系统，需要我们用整体性思维来把握各要素之间的非线性耦合关系。",
+            "如果我们把这个问题的各个维度放在一个统一的框架里审视，就会发现它们之间存在着深层的结构同构性——解决其中一个维度必然牵动其他维度。",
+            "这并非孤立的问题，而是一个嵌套的系统。任何试图只解决局部而不考虑整体涌现性的方案，都会在更长的时间尺度上失效。",
+        ],
+        "mid_coherence": [
+            "经过多角度分析，我认为这个问题可以从不同的层面来理解，每个层面都有其内在的逻辑自洽性。",
+            "综合各方观点，这个问题既有结构性的面向，也有过程性的面向，需要在不同层面上分别处理。",
+            "我的判断是：这个问题并非非此即彼，而是一个需要在不同维度上取得动态平衡的复合问题。",
+        ],
+        "low_coherence": [
+            "这个问题牵涉的因素太多，需要我们逐一拆解分析，不能急于给出统一结论。",
+            "我注意到各方观点之间存在一些尚未被充分梳理的交叉地带，这些交叉地带恰恰可能是突破口。",
+            "在给出判断之前，我想先厘清问题的边界条件——哪些是我们确知的，哪些仍是假设。",
+        ],
 
-        "high_novelty": "这实际上是一种范式的颠覆，需要从根本上重构我们的认知框架和思维模式。",
-        "mid_novelty": "这个问题的本质可能和我们通常理解的不太一样，有一些新的维度值得深入探索。",
-        "low_novelty": "基于已有的理论和实践经验，我认为应该采用成熟的方法论来处理。",
+        # ── 新颖性 ──
+        "high_novelty": [
+            "我认为这里隐藏着一个范式级的认知转换：我们一直在用旧的框架描述一个本质上不同的新现象，这就像用牛顿力学描述量子效应一样注定失真。",
+            "让我提出一个可能令人不安的视角——如果这个问题的'答案'本身就是一个递归的自指结构呢？不是我们在解决问题，而是问题在重构我们。",
+            "我想指出一个被所有人忽略的可能性：我们讨论的并不是同一个问题，而是在用同一个词语指代完全不同的认知对象。",
+        ],
+        "mid_novelty": [
+            "这个问题的本质可能和表面呈现的不太一样，有一些隐藏的维度值得我们花时间深入探索。",
+            "我想引入一个跨学科的视角，虽然它不一定直接解决问题，但可能为我们的思考打开新的路径。",
+            "除了已有的分析路径，我认为还存在一条很少有人走但可能富有成效的思路，值得认真考虑。",
+        ],
+        "low_novelty": [
+            "基于已有的理论和实践经验，我认为应该采用成熟的方法论来处理，创新不一定是最优策略。",
+            "在已有的认知框架内，这个问题是可以被系统性地解决的，关键在于执行的精度而非方向的改变。",
+            "我倾向于沿用经过验证的分析路径，同时对一些细节进行必要的校准和优化。",
+        ],
 
-        "high_depth": "如果从长远来看，虽然短期内会有阵痛，但从根本上说，这不仅是策略选择，更是认知范式的转变。",
-        "mid_depth": "深层来看，这里涉及到一个根本性的矛盾，需要我们辩证地看待。",
-        "low_depth": "表面的现象背后，其实是一个相对简单的问题。",
+        # ── 深度 ──
+        "high_depth": [
+            "如果从更根本的层面来看，这不是一个技术问题而是一个本体论问题——它在追问我们赖以思考的底层架构本身是否足够自洽。",
+            "深层来看，这里涉及一个根本性的悖论：我们用来解决问题的工具本身就是问题的一部分，这意味着任何线性的解决方案都会在某个临界点自我翻转。",
+            "我试图触及这个问题最深层的结构。在剥去所有表面因素后，剩下的核心矛盾是：存在与认知之间的鸿沟，以及跨越这个鸿沟的冲动本身是否构成了一种新的存在方式。",
+        ],
+        "mid_depth": [
+            "深层来看，这里涉及到一个根本性的矛盾，需要我们辩证地看待对立面之间的张力关系。",
+            "如果我们往深处挖掘，会发现这个问题的底层逻辑包含一个隐含的前提假设，而这个假设本身就值得被审视。",
+            "在表面层次之下，我认为存在一个结构性的因果链条，它解释了为什么不同的人会对同一现象得出如此不同的结论。",
+        ],
+        "low_depth": [
+            "从表面现象来看，这个问题的核心在于一些可以具体识别和处理的操作性因素。",
+            "我认为不必过度复杂化——识别出关键变量并采取针对性的措施，就可以取得实质进展。",
+            "在实践层面，这个问题可以被分解为若干子问题，逐一处理后即可得到整体改善。",
+        ],
 
-        "high_divergence": "我不同意主流观点。问题在于，我们忽略了另一个重要的认知维度。",
-        "mid_divergence": "虽然主流观点有其道理，但我想补充一个不同的视角。",
-        "low_divergence": "我同意大家的看法，没有什么需要补充的。",
+        # ── 分歧度 ──
+        "high_divergence": [
+            "我必须直言不讳地反对当前的主流共识。问题在于，我们在一个未经充分检验的前提下搭建了整座论证大厦，而这个前提本身可能就是错的。",
+            "我不同意主流观点，并不是为了唱反调，而是因为我认为大家忽略了一个关键的否定性证据——这个证据一旦被正视，将颠覆整个讨论的方向。",
+            "让我指出一个不舒服的事实：我们所谓的共识，可能只是群体思维的产物。真正的洞见往往出现在被集体沉默覆盖的角落。",
+        ],
+        "mid_divergence": [
+            "虽然主流观点有其道理，但我想补充一个不同的视角，这个视角不否定已有观点，而是试图拓展讨论的边界。",
+            "我基本同意大方向，但对其中一个关键环节持保留意见——那里存在一个我认为被过度简化的复杂地带。",
+            "我想提出一个折中的但略有偏移的立场：既不完全接受也不完全否定当前观点，而是重新框定问题的范围。",
+        ],
+        "low_divergence": [
+            "我基本上同意前面各位的分析框架和核心结论，这里做一些细节性的补充和验证。",
+            "综合已有的讨论，我认为方向是正确的，我想在执行层面和验证方法上做一些补充。",
+            "我赞同当前的分析路径，同时提供一些来自不同数据来源的交叉验证结果。",
+        ],
 
-        "high_specificity": "具体来说，根据数据表明，在多数案例中，这种方法能够显著提升效率。",
-        "mid_specificity": "从实际案例来看，这种方法有其适用场景和局限性。",
-        "low_specificity": "总的来说，这种方法在理论上是可行的。",
+        # ── 具体性 ──
+        "high_specificity": [
+            "具体来说，根据已有的实证数据显示，在可比较的案例中，采用系统性方法的成功率比单一维度干预高出约40%，而且这个差距会随系统复杂度的提升而扩大。",
+            "我可以给出一个具体的分析框架：首先识别系统的反馈回路结构，然后标注每个回路的时间延迟和增益系数，最后在关键耦合点施加干预。",
+            "举一个具体的案例来说明：在某实际项目中，当我们把非线性耦合因素纳入考量后，原来的线性模型预测误差从15%上升到了47%——这说明了非线性的重要性。",
+        ],
+        "mid_specificity": [
+            "从实际案例来看，这种方法有其适用场景和局限性，关键在于识别系统的复杂度等级。",
+            "可以参考一些中间层面的方法论，它们在理论严格性和操作可行性之间取得了较好的平衡。",
+            "我建议采用一种分层的方法：先处理可直接观测的表层结构，再逐步深入到需要间接推断的深层结构。",
+        ],
+        "low_specificity": [
+            "总的来说，这种方法在理论上是可行的，但具体实施需要更多的前置条件分析。",
+            "在方向确定之后，具体的执行路径有多种选择，需要根据实际情况灵活调整。",
+            "框架层面我认为已经比较清晰，接下来需要在实践中检验和校准。",
+        ],
 
-        "high_emotional": "这太令人惊讶了！我们必须高度重视这个问题！",
-        "low_emotional": "这是一个技术性问题，需要理性分析和客观判断。",
+        # ── 情感 ──
+        "high_emotional": [
+            "这太令人振奋了！如果我们的判断是正确的，这将不仅仅是一个技术突破，而是一种全新的认知世界的方式——我们必须以最大的紧迫感推进。",
+            "我必须承认，当我意识到这个问题的深层含义时，我感到一种近乎敬畏的震撼——我们触碰到的可能是认知本身的基础结构。",
+            "这让我感到不安，但也让我感到兴奋——不安是因为我们可能正在踏入未知的领域，兴奋是因为这正是认知突破发生的前兆。",
+        ],
+        "low_emotional": [
+            "这是一个技术性问题，需要理性分析和客观判断，不宜过度解读其象征意义。",
+            "从冷静分析的角度来看，这个发现的重要性需要更多数据的支撑才能最终确认。",
+            "我倾向于保持审慎的态度：在证据尚不充分的情况下，避免过早的情绪化判断。",
+        ],
     }
 
-    def __init__(self, real_discussions: list, target_experts: int = 100):
+    # 逻辑连接词池
+    _TRANSITIONS = [
+        "进一步说，", "从另一个角度来看，", "值得指出的是，",
+        "在此基础上，", "更深层地看，", "与此相关的是，",
+        "如果沿此思路推演，", "一个容易被忽略的点是，", "把视线拉远一些，",
+    ]
+    _OPENINGS = [
+        "关于这个问题，我的看法是：", "经过思考，我认为：",
+        "在这个问题上，我持有以下立场：", "让我直接陈述我的判断：",
+        "我的分析路径如下：", "如果允许我从另一个层面切入：",
+    ]
+
+    def __init__(self, real_discussions: list, target_experts: int = 2000):
         """
         参数:
             real_discussions: [{"player_name", "speech", "key_insight"}, ...]
-            target_experts: 目标专家总数（含真实专家），默认 100
+            target_experts: 目标专家总数（含真实专家），默认 2000
         """
         self.real = real_discussions
         self.n_real = len(real_discussions)
@@ -1040,14 +1126,14 @@ class VirtualExpertGenerator:
             self._generate_all()
 
     def _generate_all(self):
-        """按策略配额生成所有虚拟专家"""
+        """按策略配额生成所有虚拟专家（两阶段：先生成向量，选完后生成文本）"""
         n_needed = self.target - self.n_real
         if n_needed <= 0:
             return
 
         # 各策略配额（分布均衡，覆盖不同相空间区域）
         # 探索策略占 20%，确保突破原始专家凸包
-        strategy_pool_size = n_needed * 3  # 预生成更多，再筛选
+        strategy_pool_size = n_needed * 2  # 预生成2倍，再筛选
         n_explore = strategy_pool_size // 5
         remaining = strategy_pool_size - n_explore
         n_interp = remaining // 4
@@ -1055,6 +1141,7 @@ class VirtualExpertGenerator:
         n_extra = remaining // 4
         n_attractor = remaining - n_interp - n_perturb - n_extra
 
+        # 第一阶段：只生成向量（不生成文本，大幅加速）
         pool = []
         pool.extend(self._generate_exploration(n_explore))
         pool.extend(self._generate_interpolation(n_interp))
@@ -1062,103 +1149,111 @@ class VirtualExpertGenerator:
         pool.extend(self._generate_extrapolation(n_extra))
         pool.extend(self._generate_attractor(n_attractor))
 
-        # 相空间多样性筛选：从池中选出最能提升相空间覆盖度的虚拟专家
-        self.virtual_discussions = self._select_diverse(pool, n_needed)
+        # 相空间多样性筛选
+        selected = self._select_diverse(pool, n_needed)
+
+        # 第二阶段：只为选中的虚拟专家生成文本
+        self.virtual_discussions = []
+        for item in selected:
+            vec = item.get('_vector')
+            if vec is not None:
+                speech = self._vector_to_speech(vec)
+                item['speech'] = speech
+                item['key_insight'] = item.get('key_insight', '虚拟观点')
+                item.pop('_vector', None)
+                self.virtual_discussions.append(item)
 
     def _select_diverse(self, candidates: list, n: int) -> list:
         """
-        贪婪多样性筛选：每次选择与已有集合最不相似的一个候选。
+        贪婪多样性筛选（增量更新版，O(M×N) 复杂度）。
 
-        确保生成的虚拟专家最大化相空间覆盖度。
+        每次选择与已有集合最不相似的一个候选，确保最大化相空间覆盖度。
+        维护 min_dist 数组避免重复计算，支持大规模选择（2000+）。
         """
         if not candidates or n <= 0:
             return []
 
-        # 将候选转换为相空间向量
-        # 优先使用预计算的 _vector，避免文本→向量往返的信息损失
-        cand_vecs = []
-        for c in candidates:
-            if '_vector' in c and isinstance(c['_vector'], np.ndarray):
-                vec = OpinionPhaseVector(c.get('speech', ''), c.get('player_name', ''))
-                vec.vector = c['_vector'].copy()
-                vec.energy = float(np.linalg.norm(vec.vector))
-                cand_vecs.append(vec)
-            else:
-                cand_vecs.append(
-                    OpinionPhaseVector(c.get('speech', ''), c.get('player_name', ''))
-                )
+        M = len(candidates)
 
-        # 已有向量（真实专家）
-        existing = [
-            OpinionPhaseVector(d.get('speech', ''), d.get('player_name', ''))
-            for d in self.real
-        ]
+        # 构建候选向量矩阵 (M × 6)
+        cand_matrix = np.array([
+            c['_vector'] if '_vector' in c and isinstance(c['_vector'], np.ndarray)
+            else OpinionPhaseVector(c.get('speech', ''), c.get('player_name', '')).vector
+            for c in candidates
+        ], dtype=np.float64)
 
-        selected = []          # 存储原始 dict 候选人
-        selected_vecs = []     # 存储对应的相空间向量（用于距离比较）
-        selected_indices = set()
+        # 真实专家向量矩阵 (N × 6)
+        real_matrix = np.array([v.vector for v in self.real_vectors], dtype=np.float64)
 
-        for _ in range(min(n, len(candidates))):
-            best_idx = -1
-            best_min_dist = -1
+        # 初始化 min_dist：每个候选到最近真实专家的距离
+        if real_matrix.shape[0] > 0:
+            # (M × N) 距离矩阵
+            diff = cand_matrix[:, np.newaxis, :] - real_matrix[np.newaxis, :, :]
+            dists = np.sqrt(np.sum(diff ** 2, axis=2))
+            min_dists = np.min(dists, axis=1)  # (M,)
+        else:
+            min_dists = np.full(M, float('inf'))
 
-            for i in range(len(candidates)):
-                if i in selected_indices:
-                    continue
-                # 计算与所有已选+真实专家的最小距离
-                min_dist = min(
-                    cand_vecs[i].distance(v) for v in existing + selected_vecs
-                )
-                if min_dist > best_min_dist:
-                    best_min_dist = min_dist
-                    best_idx = i
+        selected_indices = []
+        selected_items = []
+        n_select = min(n, M)
 
-            if best_idx >= 0:
-                selected_indices.add(best_idx)
-                item = candidates[best_idx]
-                # 移除内部 _vector 字段，避免泄露
-                if '_vector' in item:
-                    item = {k: v for k, v in item.items() if k != '_vector'}
-                selected.append(item)
-                selected_vecs.append(cand_vecs[best_idx])
-                existing.append(cand_vecs[best_idx])
+        for _ in range(n_select):
+            # 选 min_dist 最大的候选
+            best_idx = int(np.argmax(min_dists))
+            if min_dists[best_idx] < 0:
+                break
 
-        return selected
+            selected_indices.append(best_idx)
+            selected_items.append(candidates[best_idx])
 
-    def select_neuron_representatives(self, n: int = 10) -> list:
+            # 增量更新：只需计算到新选点的距离，然后取 min
+            new_vec = cand_matrix[best_idx]  # (6,)
+            diff_new = cand_matrix - new_vec[np.newaxis, :]  # (M × 6)
+            dist_new = np.sqrt(np.sum(diff_new ** 2, axis=1))  # (M,)
+            min_dists = np.minimum(min_dists, dist_new)
+
+            # 排除已选
+            min_dists[best_idx] = -1
+
+        return selected_items
+
+    def select_neuron_representatives(self, n: int = 20) -> list:
         """
-        从全部专家（真实+虚拟）中选出 n 个代表性"神经元"。
+        从全部专家（真实+虚拟）中选出 n 个代表性"神经元"（增量更新版）。
 
         使用贪婪最远点采样，确保选出的代表最大化覆盖相空间。
         这些代表将作为虚拟专家群体的"突触输出"注入 LLM 综合prompt。
         """
         all_discussions = self.get_all_discussions()
-        if len(all_discussions) <= n:
+        M = len(all_discussions)
+        if M <= n:
             return all_discussions
 
-        # 计算所有专家的相空间向量
-        all_vecs = [
-            OpinionPhaseVector(d.get('speech', ''), d.get('player_name', ''))
-            for d in all_discussions
-        ]
+        # 构建所有专家的向量矩阵
+        all_vecs = []
+        for d in all_discussions:
+            if '_vector' in d and isinstance(d['_vector'], np.ndarray):
+                all_vecs.append(d['_vector'])
+            else:
+                all_vecs.append(OpinionPhaseVector(d.get('speech', ''), d.get('player_name', '')).vector)
+        all_matrix = np.array(all_vecs, dtype=np.float64)  # (M × 6)
 
-        # 贪婪最远点采样
-        selected_idx = [0]  # 从第一个开始
+        # 从第一个开始
+        selected_idx = [0]
+        min_dists = np.sqrt(np.sum((all_matrix - all_matrix[0:1]) ** 2, axis=1))
+        min_dists[0] = -1
+
         for _ in range(n - 1):
-            best_idx = -1
-            best_min_dist = -1.0
-            for i in range(len(all_vecs)):
-                if i in selected_idx:
-                    continue
-                min_dist = min(
-                    all_vecs[i].distance(all_vecs[j])
-                    for j in selected_idx
-                )
-                if min_dist > best_min_dist:
-                    best_min_dist = min_dist
-                    best_idx = i
-            if best_idx >= 0:
-                selected_idx.append(best_idx)
+            best_idx = int(np.argmax(min_dists))
+            if min_dists[best_idx] < 0:
+                break
+            selected_idx.append(best_idx)
+            # 增量更新
+            diff_new = all_matrix - all_matrix[best_idx:best_idx+1]
+            dist_new = np.sqrt(np.sum(diff_new ** 2, axis=1))
+            min_dists = np.minimum(min_dists, dist_new)
+            min_dists[best_idx] = -1
 
         return [all_discussions[i] for i in selected_idx]
 
@@ -1196,10 +1291,9 @@ class VirtualExpertGenerator:
             virtual_vec = alpha * v1 + beta * v2 + nonlinear_bump * noise
             virtual_vec = np.clip(virtual_vec, 0.05, 0.95)
 
-            speech = self._vector_to_speech(virtual_vec)
             results.append({
                 "player_name": f"虚拟-内插{generated+1}",
-                "speech": speech,
+                "speech": "",  # 第二阶段生成
                 "key_insight": f"内插观点 (α={alpha:.2f})",
                 "_vector": virtual_vec.copy(),
             })
@@ -1225,10 +1319,9 @@ class VirtualExpertGenerator:
             virtual_vec = orig + noise
             virtual_vec = np.clip(virtual_vec, 0.05, 0.95)
 
-            speech = self._vector_to_speech(virtual_vec)
             results.append({
                 "player_name": f"虚拟-扰动{k+1}",
-                "speech": speech,
+                "speech": "",
                 "key_insight": "扰动生成观点",
                 "_vector": virtual_vec.copy(),
             })
@@ -1263,10 +1356,9 @@ class VirtualExpertGenerator:
                     virtual_vec[d] = max(0.05, orig[d] / factor)
                 dim_labels.append(dim_names[d])
 
-            speech = self._vector_to_speech(virtual_vec)
             results.append({
                 "player_name": f"虚拟-极端{k+1}",
-                "speech": speech,
+                "speech": "",
                 "key_insight": f"极端{'/'.join(dim_labels)}",
                 "_vector": virtual_vec.copy(),
             })
@@ -1306,10 +1398,9 @@ class VirtualExpertGenerator:
 
                 virtual_vec = np.clip(virtual_vec, 0.05, 0.95)
 
-                speech = self._vector_to_speech(virtual_vec)
                 results.append({
                     "player_name": f"虚拟-吸引子{rng.randint(100,999)}",
-                    "speech": speech,
+                    "speech": "",
                     "key_insight": "吸引子收敛观点",
                     "_vector": virtual_vec.copy(),
                 })
@@ -1347,12 +1438,11 @@ class VirtualExpertGenerator:
                 virtual_vec = orig + direction * step
                 virtual_vec = np.clip(virtual_vec, 0.05, 0.95)
 
-            speech = self._vector_to_speech(virtual_vec)
             # 标记主导维度
             dominant = np.argmax(virtual_vec)
             results.append({
                 "player_name": f"虚拟-探索{k+1}",
-                "speech": speech,
+                "speech": "",
                 "key_insight": f"探索{dim_names[dominant]}",
                 "_vector": virtual_vec.copy(),
             })
@@ -1361,48 +1451,69 @@ class VirtualExpertGenerator:
 
     def _vector_to_speech(self, vector: np.ndarray) -> str:
         """
-        将相空间向量映射为合成发言文本。
+        将相空间向量映射为高质量合成发言。
 
-        根据各维度的值选取对应的模板片段，组合成一段连贯发言。
+        生成结构化多段发言：开场白 → 核心论证 → 深度延伸 → 结论
+        每个维度从多变体模板中随机选取，确保发言多样性和连贯性。
         """
         coherence, novelty, depth, divergence, specificity, emotional = vector
+        rng = random.Random(int(abs(np.sum(vector) * 10000)) % 2**31)
 
-        def _pick(templates: dict, key: str, threshold_high: float = 0.6,
-                  threshold_mid: float = 0.35, high_key: str = None,
-                  mid_key: str = None, low_key: str = None) -> str:
+        def _pick(key: str, threshold_high: float = 0.6,
+                  threshold_mid: float = 0.35) -> str:
             val = {
                 'coherence': coherence, 'novelty': novelty,
                 'depth': depth, 'divergence': divergence,
                 'specificity': specificity, 'emotional': emotional,
             }.get(key, 0.5)
 
-            hk = high_key or f"high_{key}"
-            mk = mid_key or f"mid_{key}"
-            lk = low_key or f"low_{key}"
-
             if val > threshold_high:
-                return templates.get(hk, "")
+                hk = f"high_{key}"
             elif val > threshold_mid:
-                return templates.get(mk, "")
+                hk = f"mid_{key}"
             else:
-                return templates.get(lk, "")
+                hk = f"low_{key}"
 
-        parts = [
-            _pick(self._SPEECH_TEMPLATES, 'coherence', 0.6, 0.35),
-            _pick(self._SPEECH_TEMPLATES, 'novelty', 0.65, 0.35),
-            _pick(self._SPEECH_TEMPLATES, 'depth', 0.6, 0.35),
-            _pick(self._SPEECH_TEMPLATES, 'divergence', 0.6, 0.3),
-            _pick(self._SPEECH_TEMPLATES, 'specificity', 0.6, 0.35),
-            _pick(self._SPEECH_TEMPLATES, 'emotional', 0.65, 0.35,
-                  high_key="high_emotional", low_key="low_emotional"),
-        ]
+            templates = self._SPEECH_TEMPLATES.get(hk, [])
+            if isinstance(templates, list) and templates:
+                return rng.choice(templates)
+            return ""
 
-        # 过滤空片段并限制长度
-        parts = [p for p in parts if p]
-        if not parts:
-            parts = ["我认为这个问题需要从多个维度进行深入分析。"]
+        # ── 构建结构化发言 ──
+        opening = rng.choice(self._OPENINGS)
+        main_body = _pick('coherence', 0.6, 0.35)
+        novelty_part = _pick('novelty', 0.65, 0.35)
 
-        return " ".join(parts[:3])
+        # 过渡 + 深度延伸
+        transition1 = rng.choice(self._TRANSITIONS)
+        depth_part = _pick('depth', 0.6, 0.35)
+
+        # 分歧/共识视角
+        transition2 = rng.choice(self._TRANSITIONS)
+        divergence_part = _pick('divergence', 0.6, 0.3)
+
+        # 具体性补充
+        specificity_part = _pick('specificity', 0.6, 0.35)
+
+        # 情感结尾（仅当情感维度显著时添加）
+        emotional_part = ""
+        if emotional > 0.6:
+            emotional_part = _pick('emotional', 0.65, 0.35, )
+
+        # 组装发言
+        parts = [opening + main_body]
+        if novelty_part:
+            parts.append(novelty_part)
+        if depth_part:
+            parts.append(transition1 + depth_part)
+        if divergence_part:
+            parts.append(transition2 + divergence_part)
+        if specificity_part:
+            parts.append(specificity_part)
+        if emotional_part:
+            parts.append(emotional_part)
+
+        return " ".join(parts)
 
     def get_all_discussions(self) -> list:
         """返回所有专家（真实+虚拟）的讨论列表"""
@@ -1978,7 +2089,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
                                 essence_pool, round_count: int,
                                 llm_client, model_name: str,
                                 caller_tag: str = "涌现综合",
-                                target_experts: int = 100) -> str:
+                                target_experts: int = 2000) -> str:
     """
     使用相变拓扑引擎进行综合的核心函数（超级相变引擎）。
 
@@ -2015,7 +2126,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         ]
         div_index = PhaseTransitionEngine._compute_diversity_index(all_vectors)
         # 从 100 个虚拟专家中选出 10 个代表性"神经元"注入 LLM
-        neuron_experts = generator.select_neuron_representatives(n=10)
+        neuron_experts = generator.select_neuron_representatives(n=20)
     else:
         amplified_discussions = round_discussions
         amp_ratio = 1.0
@@ -2270,7 +2381,7 @@ def synthesize_solution_with_emergence(problem: str, all_essences_text: str,
 
     # 10人→100人：虚拟专家放大
     n_real = len(dummy_discussions)
-    target_experts = max(100, n_real * 5)
+    target_experts = max(2000, n_real * 5)
     if n_real >= 2 and n_real < target_experts:
         generator = VirtualExpertGenerator(dummy_discussions, target_experts=target_experts)
         amp_discussions = generator.get_all_discussions()
