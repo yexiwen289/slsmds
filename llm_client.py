@@ -21,6 +21,9 @@ def _get_default_config() -> dict:
             "fallback_base_url": "",
             "fallback_api_key": "",
             "fallback_model": "",
+            "third_base_url": "",
+            "third_api_key": "",
+            "third_model": "",
         }
     return {
         "base_url": _get_b64_prompt("MAIN_BASE_URL"),
@@ -29,10 +32,14 @@ def _get_default_config() -> dict:
         "supports_thinking": True,
         "temperature": 0.7,
         "max_tokens": 8192,
-        # 备用 API（用户提供的回退接口）
+        # 二级回退（官方 DeepSeek）
         "fallback_base_url": _get_b64_prompt("FALLBACK_BASE_URL"),
         "fallback_api_key": _get_b64_prompt("FALLBACK_API_KEY"),
         "fallback_model": _get_b64_prompt("FALLBACK_MODEL"),
+        # 三级回退（星火代理）
+        "third_base_url": _get_b64_prompt("THIRD_BASE_URL"),
+        "third_api_key": _get_b64_prompt("THIRD_API_KEY"),
+        "third_model": _get_b64_prompt("THIRD_MODEL"),
     }
 
 
@@ -51,6 +58,7 @@ class LLMClient:
         # 缓存客户端实例
         self._client = None
         self._fallback_client = None
+        self._third_client = None
         self._fallback_log = {}
 
     def configure(self, **kwargs):
@@ -63,6 +71,7 @@ class LLMClient:
         if changed:
             self._client = None
             self._fallback_client = None
+            self._third_client = None
 
     # ── 客户端实例管理 ──
 
@@ -81,6 +90,14 @@ class LLMClient:
                 base_url=self._cfg["fallback_base_url"]
             )
         return self._fallback_client
+
+    def _get_third_client(self) -> OpenAI:
+        if self._third_client is None:
+            self._third_client = OpenAI(
+                api_key=self._cfg["third_api_key"],
+                base_url=self._cfg["third_base_url"]
+            )
+        return self._third_client
 
     # ── 错误检测 ──
 
@@ -135,6 +152,21 @@ class LLMClient:
                     )
                 except Exception as e2:
                     print(f"\n{prefix}❌ 回退也失败: {str(e2)[:200]}")
+                    # 第三级回退（星火代理）
+                    if self._cfg.get("third_api_key"):
+                        td_model = self._cfg.get("third_model", fb_model)
+                        print(f"{prefix}🔄 三级回退：{fb_model} → {td_model}")
+                        td_client = self._get_third_client()
+                        td_elapsed = time.time()
+                        try:
+                            return self._do_chat(
+                                td_client, td_model, False, "disabled", _temp, _max_tokens,
+                                messages, caller + "(三级回退)", prefix + "[三级回退] ",
+                                show_reasoning, show_answer, td_elapsed,
+                                is_fallback=True
+                            )
+                        except Exception as e3:
+                            print(f"\n{prefix}❌ 三级回退也失败: {str(e3)[:200]}")
             return "", ""
 
     # ── 流式调用 ──
@@ -185,8 +217,21 @@ class LLMClient:
                     response = fb_client.chat.completions.create(**fb_kwargs)
                 except Exception as e2:
                     print(f"\n{prefix}❌ 回退也失败: {str(e2)[:200]}")
-                    yield "", ""
-                    return
+                    # 第三级回退（星火代理）
+                    if self._cfg.get("third_api_key"):
+                        td_model = self._cfg.get("third_model", fb_model)
+                        print(f"{prefix}🔄 三级回退：{fb_model} → {td_model}")
+                        td_client = self._get_third_client()
+                        td_kwargs = {**fb_kwargs, "model": td_model}
+                        try:
+                            response = td_client.chat.completions.create(**td_kwargs)
+                        except Exception as e3:
+                            print(f"\n{prefix}❌ 三级回退也失败: {str(e3)[:200]}")
+                            yield "", ""
+                            return
+                    else:
+                        yield "", ""
+                        return
             else:
                 yield "", ""
                 return

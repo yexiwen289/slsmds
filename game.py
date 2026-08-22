@@ -5122,6 +5122,9 @@ _DEFAULT_SETTINGS = {
     "fallback_base_url": _get_b64_prompt("FALLBACK_BASE_URL"),
     "fallback_api_key": _get_b64_prompt("FALLBACK_API_KEY"),
     "fallback_model": _get_b64_prompt("FALLBACK_MODEL"),
+    "third_base_url": _get_b64_prompt("THIRD_BASE_URL"),
+    "third_api_key": _get_b64_prompt("THIRD_API_KEY"),
+    "third_model": _get_b64_prompt("THIRD_MODEL"),
 
     # ── 玩家默认配置 ──
     "thinking": "disabled",
@@ -5214,6 +5217,9 @@ def _apply_settings(settings: dict) -> dict:
             "fallback_base_url": settings.get("fallback_base_url", ""),
             "fallback_api_key": settings.get("fallback_api_key", ""),
             "fallback_model": settings.get("fallback_model", ""),
+            "third_base_url": settings.get("third_base_url", ""),
+            "third_api_key": settings.get("third_api_key", ""),
+            "third_model": settings.get("third_model", ""),
         }
     if settings.get("use_default", True):
         return {
@@ -5227,6 +5233,9 @@ def _apply_settings(settings: dict) -> dict:
             "fallback_base_url": settings.get("fallback_base_url", _get_b64_prompt("FALLBACK_BASE_URL")),
             "fallback_api_key": settings.get("fallback_api_key", _get_b64_prompt("FALLBACK_API_KEY")),
             "fallback_model": settings.get("fallback_model", _get_b64_prompt("FALLBACK_MODEL")),
+            "third_base_url": settings.get("third_base_url", _get_b64_prompt("THIRD_BASE_URL")),
+            "third_api_key": settings.get("third_api_key", _get_b64_prompt("THIRD_API_KEY")),
+            "third_model": settings.get("third_model", _get_b64_prompt("THIRD_MODEL")),
         }
     # 自定义设置
     return {
@@ -5240,6 +5249,9 @@ def _apply_settings(settings: dict) -> dict:
         "fallback_base_url": settings.get("fallback_base_url", _get_b64_prompt("FALLBACK_BASE_URL")),
         "fallback_api_key": settings.get("fallback_api_key", _get_b64_prompt("FALLBACK_API_KEY")),
         "fallback_model": settings.get("fallback_model", _get_b64_prompt("FALLBACK_MODEL")),
+        "third_base_url": settings.get("third_base_url", _get_b64_prompt("THIRD_BASE_URL")),
+        "third_api_key": settings.get("third_api_key", _get_b64_prompt("THIRD_API_KEY")),
+        "third_model": settings.get("third_model", _get_b64_prompt("THIRD_MODEL")),
     }
 
 
@@ -5346,6 +5358,8 @@ def _api_config_menu():
         fb_key = settings.get("fallback_api_key", "")
         fb_masked = fb_key[:8] + "..." if len(fb_key) > 12 else "(空)"
         print(f"{N2}  {C_DIM('备用 API:')} {C_DIM(fb_url if fb_url else '(默认)')}  {C_DIM(fb_masked)}")
+        td_url = settings.get("third_base_url", "")
+        print(f"{N2}  {C_DIM('三级 API:')} {C_DIM(td_url if td_url else '(默认)')}")
         _sep(w)
         print(f"{N2}  {C_CYAN(' [1] ')}  切换模型       {C_DIM(f'当前: {model}')}")
         api_source_label = "默认" if use_default else "自定义"
@@ -5354,11 +5368,12 @@ def _api_config_menu():
             print(f"{N2}  {C_MAGENTA(' [3] ')}  设置 API Key   {C_DIM('自定义密钥')}")
             print(f"{N2}  {C_BLUE(' [4] ')}  设置 Base URL  {C_DIM('自定义地址')}")
         print(f"{N2}  {C_GREEN(' [5] ')}  设置备用 API  {C_DIM('回退接口地址/密钥')}")
+        print(f"{N2}  {C_MAGENTA(' [6] ')}  设置三级 API  {C_DIM('第二回退接口地址/密钥')}")
         print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
         _close_box(w)
         print()
         print(f"  {C_YELLOW('▸')}  ", end="")
-        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-5/q]')}: ").strip().lower()
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-6/q]')}: ").strip().lower()
 
         if choice == "1":
             # 切换模型（无提供商限制，直接列出所有常用模型）
@@ -5402,6 +5417,23 @@ def _api_config_menu():
                 settings["fallback_model"] = new_fb_model
             _save_settings(settings)
             print(f"{N2}  {C_GREEN('✓')} 备用 API 已更新")
+            _pause()
+        elif choice == "6":
+            print(f"\n{N2}  {C_DIM('三级 API：二级回退也用尽时使用（星火代理）')}")
+            print(f"{N2}  ", end="")
+            new_td_url = input(f"{C_CYAN('三级 Base URL')} [{C_DIM(settings.get('third_base_url', _get_b64_prompt('THIRD_BASE_URL')))}]: ").strip()
+            if new_td_url:
+                settings["third_base_url"] = new_td_url
+            print(f"{N2}  ", end="")
+            new_td_key = input(f"{C_CYAN('三级 API Key')}: ").strip()
+            if new_td_key:
+                settings["third_api_key"] = new_td_key
+            print(f"{N2}  ", end="")
+            new_td_model = input(f"{C_CYAN('三级模型')} [{C_DIM(settings.get('third_model', _get_b64_prompt('THIRD_MODEL')))}]: ").strip()
+            if new_td_model:
+                settings["third_model"] = new_td_model
+            _save_settings(settings)
+            print(f"{N2}  {C_GREEN('✓')} 三级 API 已更新")
             _pause()
         elif choice == "q":
             return
