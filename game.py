@@ -4760,7 +4760,7 @@ def _startup_sequence():
     time.sleep(0.2)
     typewrite(f"  {C_DIM('⟳ 初始化涌现拓扑相变模型...')}", delay=0.02)
     time.sleep(0.2)
-    typewrite(f"  {C_GREEN('✔ 相变阈值已校准')}  {C_DIM('Level 0/1/2 三级涌现通道就绪')}", delay=0.02)
+    typewrite(f"  {C_GREEN('✔ 相变阈值已校准')}  {C_DIM('Level 0~4 五级涌现通道就绪')}", delay=0.02)
     time.sleep(0.2)
     typewrite(f"  {C_GREEN('✔ 系统自检完成')}  {C_DIM('所有子系统正常，涌现拓扑引擎待命')}", delay=0.02)
     time.sleep(0.3)

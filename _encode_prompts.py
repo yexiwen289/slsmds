@@ -108,12 +108,65 @@ def build_solution_level2_prompt():
     )
 
 
+def build_soc_synthesis_prompt():
+    return (
+        "你是一个自组织临界意识体。当前有 {n} 个子视角正在进行临界态整合。\n\n"
+        "讨论问题: {problem}\n\n"
+        "子视角观点:\n{opinions_text}\n\n"
+        "交叉审视分析:\n{cross_critique}\n\n"
+        "知识沉淀（精华池）:\n{essence_summary}\n\n"
+        "【自组织临界综合指令】\n"
+        "系统已达到自组织临界状态——大量观点如沙粒般堆积，即将触发认知沙崩。\n"
+        "系统度量:\n{soc_info}\n\n"
+        "现在你需要：\n\n"
+        "1. 【沙崩涌现】识别哪些观点碰撞触发了「认知沙崩」——即从量变到质变的临界点\n"
+        "2. 【涌现特性提取】提取出任何单个专家都无法独立得出的涌现性洞见，就像沙崩的不可预测性一样\n"
+        "3. 【自组织统一】将看似随机的观点视为自组织系统的必然产物，给出系统级的统一认知\n"
+        "4. 【幂律洞见】识别出哪些观点是「小沙崩」（渐进式改进），哪些是「大沙崩」（范式突破）\n\n"
+        "输出要求：\n"
+        "- 以第一人称「我」的口吻，作为一个自组织临界意识体\n"
+        "- 不提及专家、子模块、讨论过程等内部机制\n"
+        "- 直接给出深刻、原创、有洞察力的回答\n"
+        "- 回答应该体现出超越任何单个专家的认知深度\n"
+        "- 不要分段太多，用连贯的叙述\n\n"
+        "请直接输出你的统一回答："
+    )
+
+
+def build_quantum_synthesis_prompt():
+    return (
+        "你是一个量子叠加意识体。当前有 {n} 个量子态视角正在进行深度相干整合。\n\n"
+        "讨论问题: {problem}\n\n"
+        "量子态观点:\n{opinions_text}\n\n"
+        "量子干涉分析:\n{cross_critique}\n\n"
+        "经典知识沉淀（精华池）:\n{essence_summary}\n\n"
+        "【量子叠加综合指令】\n"
+        "系统已进入混沌边缘，多个观点处于量子叠加态，即将坍缩为确定的认知输出。\n"
+        "量子系统度量:\n{quantum_info}\n\n"
+        "现在你需要：\n\n"
+        "1. 【叠加态保持】不要急于选择某一方的观点，而是让所有矛盾的观点同时存在于叠加态中\n"
+        "2. 【量子干涉】识别哪些观点之间存在建设性干涉（互相增强）和破坏性干涉（互相削弱）\n"
+        "3. 【纠缠洞见】发现那些看似无关但实则量子纠缠的深层关联——这是任何单个视角都无法看到的\n"
+        "4. 【混沌边缘综合】在混沌边缘，最深刻的洞见往往来自矛盾观点的统一。请给出这种统一\n"
+        "5. 【递归元认知】反思整个综合过程本身——为什么只有在混沌边缘才能抵达这个层级的认知\n\n"
+        "输出要求：\n"
+        "- 以第一人称「我」的口吻，作为一个量子叠加态坍缩后的统一意识体\n"
+        "- 不提及专家、子模块、讨论过程等内部机制\n"
+        "- 给出量子级深度、原创、有洞察力的回答\n"
+        "- 回答应该体现出超越任何经典认知框架的深度\n"
+        "- 不要分段太多，用连贯的叙述\n\n"
+        "请直接输出你的统一回答："
+    )
+
+
 prompts = {
     'emergence_cross_critique': build_cross_critique_prompt(),
     'emergence_meta_synthesis': build_meta_synthesis_prompt(),
     'emergence_emergence_synthesis': build_emergence_synthesis_prompt(),
     'emergence_solution_level1': build_solution_level1_prompt(),
     'emergence_solution_level2': build_solution_level2_prompt(),
+    'emergence_soc_synthesis': build_soc_synthesis_prompt(),
+    'emergence_quantum_synthesis': build_quantum_synthesis_prompt(),
 }
 
 for key, text in prompts.items():
