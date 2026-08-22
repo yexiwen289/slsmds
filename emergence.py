@@ -1946,6 +1946,26 @@ class PhaseTransitionEngine:
 # 8. 旧版兼容函数（保留原有 API 签名）
 # ═══════════════════════════════════════════════════════════════
 
+def _compress_speech(speech: str, max_chars: int = 80) -> str:
+    """
+    压缩发言文本到关键句，大幅降低 token 消耗。
+
+    保留第一句（通常是核心论点），如果太长则截断到 max_chars。
+    如果发言很短（< 20 字）则原样保留，避免信息丢失。
+    """
+    if not speech:
+        return speech
+    if len(speech) <= max_chars:
+        return speech
+    # 尝试按句号/问号/感叹号/分号切出第一句
+    for sep in ('。', '？', '！', '；', '.\n', '?\n', '!\n'):
+        idx = speech.find(sep)
+        if 20 <= idx <= max_chars:
+            return speech[:idx + 1]
+    # 没找到合适的句末，直接截断
+    return speech[:max_chars].rstrip('，, ') + '…'
+
+
 def _calc_emergence_potential(essence_pool, expert_count: int, round_count: int) -> float:
     """
     （兼容）计算涌现势能。
@@ -2125,13 +2145,18 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             for d in amplified_discussions
         ]
         div_index = PhaseTransitionEngine._compute_diversity_index(all_vectors)
-        # 从 100 个虚拟专家中选出 10 个代表性"神经元"注入 LLM
+        # 从虚拟专家中选出 20 个代表性"神经元"注入 LLM
         neuron_experts = generator.select_neuron_representatives(n=20)
+        # 压缩神经元发言（只保留第一句/关键句），大幅降低 token 消耗
+        for nd in neuron_experts:
+            nd['speech'] = _compress_speech(nd.get('speech', ''))
     else:
         amplified_discussions = round_discussions
         amp_ratio = 1.0
         div_index = 0.0
         neuron_experts = round_discussions
+        for nd in neuron_experts:
+            nd['speech'] = _compress_speech(nd.get('speech', ''))
 
     # 使用相变拓扑引擎（放大版）计算涌现层级
     engine = PhaseTransitionEngine(
