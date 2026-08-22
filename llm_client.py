@@ -17,7 +17,7 @@ def _get_default_config() -> dict:
             "model": "",
             "supports_thinking": False,
             "temperature": 0.7,
-            "max_tokens": 8192,
+            "max_tokens": 4096,
             "fallback_base_url": "",
             "fallback_api_key": "",
             "fallback_model": "",
@@ -31,7 +31,7 @@ def _get_default_config() -> dict:
         "model": _get_b64_prompt("MAIN_MODEL"),
         "supports_thinking": True,
         "temperature": 0.7,
-        "max_tokens": 8192,
+        "max_tokens": 4096,
         # 二级回退（官方 DeepSeek）
         "fallback_base_url": _get_b64_prompt("FALLBACK_BASE_URL"),
         "fallback_api_key": _get_b64_prompt("FALLBACK_API_KEY"),
@@ -112,6 +112,12 @@ class LLMClient:
         ]
         return any(s in err_str for s in fallback_signals)
 
+    @staticmethod
+    def _is_429(error: Exception) -> bool:
+        """检测是否为 429 限流（rpm/too many requests/rate limit）"""
+        err_str = str(error).lower()
+        return any(s in err_str for s in ["429", "rpm exhausted", "too many requests", "rate limit"])
+
     # ── 非流式调用 ──
 
     def chat(self, messages, model=None,
@@ -129,11 +135,23 @@ class LLMClient:
         client = self._get_client()
 
         try:
-            return self._do_chat(
-                client, _model, _supports_thinking, thinking_type, _temp, _max_tokens,
-                messages, caller, prefix, show_reasoning, show_answer, elapsed,
-                is_fallback=False
-            )
+            try:
+                return self._do_chat(
+                    client, _model, _supports_thinking, thinking_type, _temp, _max_tokens,
+                    messages, caller, prefix, show_reasoning, show_answer, elapsed,
+                    is_fallback=False
+                )
+            except Exception as e_retry:
+                if not self._is_429(e_retry):
+                    raise
+                # 429 限流（rpm）：等待 3 秒重试一次，仍失败则进入回退链
+                print(f"\n{prefix}⏳ [{_model}] 429 限流，3秒后重试...")
+                time.sleep(3)
+                return self._do_chat(
+                    client, _model, _supports_thinking, thinking_type, _temp, _max_tokens,
+                    messages, caller, prefix, show_reasoning, show_answer, elapsed,
+                    is_fallback=False
+                )
         except Exception as e:
             total_time = time.time() - elapsed
             print(f"\n{prefix}❌ [{_model}] 出错 ({total_time:.1f}s): {str(e)[:200]}")
@@ -144,12 +162,14 @@ class LLMClient:
                 fb_client = self._get_fallback_client()
                 fb_elapsed = time.time()
                 try:
-                    return self._do_chat(
+                    fb_result = self._do_chat(
                         fb_client, fb_model, False, "disabled", _temp, _max_tokens,
                         messages, caller + "(回退)", prefix + "[回退] ",
                         show_reasoning, show_answer, fb_elapsed,
                         is_fallback=True
                     )
+                    print(f"{prefix}✅ 二级回退成功（官方 DeepSeek / {fb_model}）")
+                    return fb_result
                 except Exception as e2:
                     print(f"\n{prefix}❌ 回退也失败: {str(e2)[:200]}")
                     # 第三级回退（星火代理）
@@ -159,12 +179,14 @@ class LLMClient:
                         td_client = self._get_third_client()
                         td_elapsed = time.time()
                         try:
-                            return self._do_chat(
+                            td_result = self._do_chat(
                                 td_client, td_model, False, "disabled", _temp, _max_tokens,
                                 messages, caller + "(三级回退)", prefix + "[三级回退] ",
                                 show_reasoning, show_answer, td_elapsed,
                                 is_fallback=True
                             )
+                            print(f"{prefix}✅ 三级回退成功（星火代理 / {td_model}）")
+                            return td_result
                         except Exception as e3:
                             print(f"\n{prefix}❌ 三级回退也失败: {str(e3)[:200]}")
             return "", ""
@@ -201,7 +223,15 @@ class LLMClient:
             kwargs["temperature"] = _temp
 
         try:
-            response = client.chat.completions.create(**kwargs)
+            try:
+                response = client.chat.completions.create(**kwargs)
+            except Exception as e_retry:
+                if not self._is_429(e_retry):
+                    raise
+                # 429 限流（rpm）：等待 3 秒重试一次，仍失败则进入回退链
+                print(f"\n{prefix}⏳ [{_model}] 429 限流，3秒后重试...")
+                time.sleep(3)
+                response = client.chat.completions.create(**kwargs)
         except Exception as e:
             total_time = time.time() - elapsed
             print(f"\n{prefix}❌ [{_model}] 流式出错 ({total_time:.1f}s): {str(e)[:200]}")
@@ -215,6 +245,7 @@ class LLMClient:
                 fb_kwargs["timeout"] = 120
                 try:
                     response = fb_client.chat.completions.create(**fb_kwargs)
+                    print(f"{prefix}✅ 二级回退成功（官方 DeepSeek / {fb_model}）")
                 except Exception as e2:
                     print(f"\n{prefix}❌ 回退也失败: {str(e2)[:200]}")
                     # 第三级回退（星火代理）
@@ -225,6 +256,7 @@ class LLMClient:
                         td_kwargs = {**fb_kwargs, "model": td_model}
                         try:
                             response = td_client.chat.completions.create(**td_kwargs)
+                            print(f"{prefix}✅ 三级回退成功（星火代理 / {td_model}）")
                         except Exception as e3:
                             print(f"\n{prefix}❌ 三级回退也失败: {str(e3)[:200]}")
                             yield "", ""
