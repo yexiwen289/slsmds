@@ -3462,12 +3462,29 @@ class Game:
         # ── 综合为统一回复（使用涌现拓扑） ──
         # 当前行为：线性拼接 → 涌现拓扑（量变→质变）
         # 根据精华池规模和专家数自动选择综合深度
-        # 注入历史讨论以增加虚拟专家生成器的真实样本数
+        # 注入历史讨论 + 精华池高分条目，增加虚拟专家生成器的真实样本数
         history_discussions = [
             entry for entry in self.discussion_history[-20:]
             if entry.get("speech") and entry.get("speech") != "（无发言）"
         ]
-        all_discussions = history_discussions + round_discussions
+        # 精华池 top-N 作为额外"专家观点"注入
+        essence_discussions = []
+        if self.essence_pool.items:
+            top_essences = sorted(
+                self.essence_pool.items,
+                key=lambda x: getattr(x, 'score', 0),
+                reverse=True
+            )[:15]
+            for ess in top_essences:
+                content = getattr(ess, 'content', '') or (ess.get('content', '') if isinstance(ess, dict) else '')
+                if content:
+                    essence_discussions.append({
+                        "player_name": f"精华({getattr(ess, 'score', 0):.1f})",
+                        "speech": content,
+                        "key_insight": content[:60],
+                        "action": "new",
+                    })
+        all_discussions = history_discussions + essence_discussions + round_discussions
         response = synthesize_with_emergence(
             problem=user_input if is_opening else f"{self.problem}\n用户说: {user_input}",
             round_discussions=all_discussions,
@@ -3811,6 +3828,10 @@ class Game:
         print(f"✅ 已从断点恢复: {checkpoint_path}")
         print(f"   问题: {game.problem[:60]}...")
         print(f"   当前进度: 第{game.round_count}轮, 精华池{len(game.essence_pool.items)}条")
+        # 超级相变引擎状态
+        n_real = len(game.discussion_history) + len(game.essence_pool.items)
+        amp_target = getattr(game, "amplification_target", 100)
+        print(f"   超级相变引擎: {n_real} 个真实样本 → {amp_target} 虚拟专家 (放大 {amp_target/max(n_real,1):.1f}x)")
         return game
 
     def start_game(self) -> None:
