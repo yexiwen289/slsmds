@@ -1125,6 +1125,43 @@ class VirtualExpertGenerator:
 
         return selected
 
+    def select_neuron_representatives(self, n: int = 10) -> list:
+        """
+        从全部专家（真实+虚拟）中选出 n 个代表性"神经元"。
+
+        使用贪婪最远点采样，确保选出的代表最大化覆盖相空间。
+        这些代表将作为虚拟专家群体的"突触输出"注入 LLM 综合prompt。
+        """
+        all_discussions = self.get_all_discussions()
+        if len(all_discussions) <= n:
+            return all_discussions
+
+        # 计算所有专家的相空间向量
+        all_vecs = [
+            OpinionPhaseVector(d.get('speech', ''), d.get('player_name', ''))
+            for d in all_discussions
+        ]
+
+        # 贪婪最远点采样
+        selected_idx = [0]  # 从第一个开始
+        for _ in range(n - 1):
+            best_idx = -1
+            best_min_dist = -1.0
+            for i in range(len(all_vecs)):
+                if i in selected_idx:
+                    continue
+                min_dist = min(
+                    all_vecs[i].distance(all_vecs[j])
+                    for j in selected_idx
+                )
+                if min_dist > best_min_dist:
+                    best_min_dist = min_dist
+                    best_idx = i
+            if best_idx >= 0:
+                selected_idx.append(best_idx)
+
+        return [all_discussions[i] for i in selected_idx]
+
     def _generate_interpolation(self, count: int) -> list:
         """成对非线性插值生成虚拟专家"""
         if self.n_real < 2 or count <= 0:
@@ -1977,10 +2014,13 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             for d in amplified_discussions
         ]
         div_index = PhaseTransitionEngine._compute_diversity_index(all_vectors)
+        # 从 100 个虚拟专家中选出 10 个代表性"神经元"注入 LLM
+        neuron_experts = generator.select_neuron_representatives(n=10)
     else:
         amplified_discussions = round_discussions
         amp_ratio = 1.0
         div_index = 0.0
+        neuron_experts = round_discussions
 
     # 使用相变拓扑引擎（放大版）计算涌现层级
     engine = PhaseTransitionEngine(
@@ -2001,7 +2041,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     if level == 0:
         discussion_text = "\n\n".join(
             f"【{d['player_name']}】\n{d['speech']}"
-            for d in round_discussions
+            for d in neuron_experts
         )
         prompt = (
             f"你是一个统一的意识体。以下是对同一问题的内部讨论记录。\n\n"
@@ -2024,7 +2064,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     # Level 1: 交叉耦合综合（非线性耦合矩阵）
     if level == 1:
         # 第一步：交叉审视
-        critique_prompt = _build_cross_critique_prompt(round_discussions)
+        critique_prompt = _build_cross_critique_prompt(neuron_experts)
         try:
             critique_result, _ = llm_client.chat(
                 [{"role": "user", "content": critique_prompt}],
@@ -2038,7 +2078,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
 
         # 第二步：基于交叉审视的元综合
         synth_prompt = _build_meta_synthesis_prompt(
-            problem, round_discussions, critique_result, essence_summary
+            problem, neuron_experts, critique_result, essence_summary
         )
         try:
             response, _ = llm_client.chat(
@@ -2055,7 +2095,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     # Level 2: 序参量涌现（相变触发）
     if level == 2:
         # 第一步：深度交叉审视
-        critique_prompt = _build_cross_critique_prompt(round_discussions)
+        critique_prompt = _build_cross_critique_prompt(neuron_experts)
         try:
             critique_result, _ = llm_client.chat(
                 [{"role": "user", "content": critique_prompt}],
@@ -2069,7 +2109,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
 
         # 第二步：涌现综合（相变级）
         synth_prompt = _build_emergence_synthesis_prompt(
-            problem, round_discussions, critique_result, essence_summary
+            problem, neuron_experts, critique_result, essence_summary
         )
         try:
             response, _ = llm_client.chat(
@@ -2086,7 +2126,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     # Level 3: 自组织临界综合（沙崩涌现）
     if level == 3:
         # 第一步：深度交叉审视
-        critique_prompt = _build_cross_critique_prompt(round_discussions)
+        critique_prompt = _build_cross_critique_prompt(neuron_experts)
         try:
             critique_result, _ = llm_client.chat(
                 [{"role": "user", "content": critique_prompt}],
@@ -2100,7 +2140,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
 
         # 第二步：自组织临界综合
         synth_prompt = _build_soc_synthesis_prompt(
-            problem, round_discussions, critique_result, essence_summary, metrics
+            problem, neuron_experts, critique_result, essence_summary, metrics
         )
         try:
             response, _ = llm_client.chat(
@@ -2117,7 +2157,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     # Level 4: 量子叠加与混沌边缘（深度质变）
     if level == 4:
         # 第一步：量子干涉态分析
-        critique_prompt = _build_cross_critique_prompt(round_discussions)
+        critique_prompt = _build_cross_critique_prompt(neuron_experts)
         try:
             critique_result, _ = llm_client.chat(
                 [{"role": "user", "content": critique_prompt}],
@@ -2155,7 +2195,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
 
         # 第三步：量子叠加综合
         synth_prompt = _build_quantum_synthesis_prompt(
-            problem, round_discussions, combined_critique, essence_summary, metrics
+            problem, neuron_experts, combined_critique, essence_summary, metrics
         )
         try:
             response, _ = llm_client.chat(
