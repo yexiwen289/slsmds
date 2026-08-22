@@ -3197,10 +3197,10 @@ class Game:
         # ── 阶段1: 精华数据汇聚（量变积累） ──
         _empty_line()
         typewrite(f"  {C_DIM('⟳ 第一阶段: 精华数据汇聚...')}", delay=0.015)
-        for i in range(min(n_alive, 8)):
+        alive_players = [p for p in self.players if p.alive]
+        for i, p in enumerate(alive_players):
             time.sleep(0.3)
-            p = [p for p in self.players if p.alive][i % len([p for p in self.players if p.alive])]
-            sys.stdout.write(f"\r  {C_DIM('⟳')} 正在提取 {C_CYAN(p.persona_name or p.name)} 的认知数据... {C_GREEN(f'[{i+1}/{min(n_alive,8)}]')}")
+            sys.stdout.write(f"\r  {C_DIM('⟳')} 正在提取 {C_CYAN(p.persona_name or p.name)} 的认知数据... {C_GREEN(f'[{i+1}/{n_alive}]')}")
             sys.stdout.flush()
             time.sleep(0.2)
         print(f"\r  {C_GREEN('✔')} 认知数据全部提取，共 {C_BOLD(str(n_alive))} 份{C_DIM(' ' * 20)}")
@@ -3462,14 +3462,21 @@ class Game:
         # ── 综合为统一回复（使用涌现拓扑） ──
         # 当前行为：线性拼接 → 涌现拓扑（量变→质变）
         # 根据精华池规模和专家数自动选择综合深度
+        # 注入历史讨论以增加虚拟专家生成器的真实样本数
+        history_discussions = [
+            entry for entry in self.discussion_history[-20:]
+            if entry.get("speech") and entry.get("speech") != "（无发言）"
+        ]
+        all_discussions = history_discussions + round_discussions
         response = synthesize_with_emergence(
             problem=user_input if is_opening else f"{self.problem}\n用户说: {user_input}",
-            round_discussions=round_discussions,
+            round_discussions=all_discussions,
             essence_pool=self.essence_pool,
             round_count=self.round_count,
             llm_client=self.players[0].llm_client,
             model_name=self.players[0].model_name,
             caller_tag="整合意识-涌现",
+            target_experts=getattr(self, "amplification_target", 100),
         )
         if response:
             return response
@@ -3480,7 +3487,9 @@ class Game:
         """保存当前状态到断点文件，并嵌入到控制台日志中"""
         # 保存断点
         checkpoint = {
-            "version": 3,
+            "version": 4,
+            "engine_version": 4,
+            "amplification_target": getattr(self, "amplification_target", 100),
             "problem": self.problem,
             "discussion_mode": self.discussion_mode,
             "round_count": self.round_count,
@@ -3750,6 +3759,8 @@ class Game:
         # 恢复自我意识培养标记（兼容旧断点）
         game.is_self_awareness_cultivation = data.get("is_self_awareness_cultivation", False)
         game.total_rounds = data.get("total_rounds", None)
+        # 恢复超级相变引擎参数（兼容旧断点）
+        game.amplification_target = data.get("amplification_target", 100)
         # 同步到所有专家
         for p in game.players:
             p.enable_self_awareness = game.enable_self_awareness
