@@ -19,6 +19,9 @@ import json
 import os
 import time
 import random
+import socket
+import subprocess
+import threading
 from typing import List, Optional, Dict
 from player import Player
 from essence_pool import EssencePool
@@ -56,6 +59,111 @@ STALL_THRESHOLD_ROUNDS = 3       # 连续N轮无新精华即认为停滞
 LONG_DISCUSSION_WARN = 10         # 超过N轮给出过长提醒
 DEFAULT_SPEAKERS_PER_ROUND = 3    # 每轮默认发言专家数（第1轮全部发言）
 META_DISCUSSION_INTERVAL = 5      # 每隔N轮插入一轮元讨论（反身性反馈）
+
+
+# ═══════════════════════════════════════════════════════════════
+# 神经元点阵图管理器（独立进程 + UDP 事件推送）
+# ═══════════════════════════════════════════════════════════════
+
+class NeuronMapManager:
+    """
+    神经元高维点阵图管理器。
+
+    启动独立进程 neuron_map.py 显示窗口，并通过 UDP socket 实时
+    推送推理事件（神经元初始化、层级判定、信息传递等）。
+    """
+
+    def __init__(self):
+        self._proc = None
+        self._sock = None
+        self._port = None
+        self._lock = threading.Lock()
+
+    @property
+    def is_running(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+    def start(self) -> bool:
+        """启动神经元点阵图窗口（独立进程）"""
+        if self.is_running:
+            return True
+        try:
+            # 找到空闲端口
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.bind(("127.0.0.1", 0))
+            self._port = s.getsockname()[1]
+            s.close()
+
+            base = os.path.dirname(os.path.abspath(__file__))
+            script = os.path.join(base, "neuron_map.py")
+            if not os.path.exists(script):
+                print(f"\n  {C_DIM('神经元点阵图脚本不存在，已跳过')}")
+                return False
+
+            # 静默启动独立进程（Windows 下不弹出控制台）
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = subprocess.CREATE_NO_WINDOW
+            self._proc = subprocess.Popen(
+                [sys.executable, script, "--port", str(self._port)],
+                cwd=base,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+
+            # UDP 发送 socket
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            time.sleep(1.0)  # 等待窗口初始化
+            self._send({"type": "status", "text": "整合意识连接成功，等待推理事件..."})
+            return True
+        except Exception as e:
+            print(f"\n  {C_DIM(f'神经元点阵图启动失败: {str(e)[:40]}')}")
+            return False
+
+    def _send(self, event: dict):
+        """发送 JSON 事件到窗口进程"""
+        if self._sock is None or self._port is None:
+            return
+        try:
+            data = json.dumps(event, ensure_ascii=False).encode("utf-8")
+            self._sock.sendto(data, ("127.0.0.1", self._port))
+        except Exception:
+            pass
+
+    def push(self, event: dict):
+        """线程安全推送事件"""
+        with self._lock:
+            self._send(event)
+
+    def event_callback(self):
+        """返回可直接传给 synthesize_with_emergence 的回调函数"""
+        def _cb(event: dict):
+            self.push(event)
+        return _cb
+
+    def stop(self):
+        """关闭窗口进程"""
+        with self._lock:
+            try:
+                if self._proc is not None and self._proc.poll() is None:
+                    self._send({"type": "exit"})
+                    time.sleep(0.3)
+                    self._proc.terminate()
+                    try:
+                        self._proc.wait(timeout=2)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            finally:
+                if self._sock is not None:
+                    try:
+                        self._sock.close()
+                    except Exception:
+                        pass
+                self._proc = None
+                self._sock = None
 
 
 class Game:
@@ -127,6 +235,9 @@ class Game:
         self.settings = settings or _load_settings()
         self.mechanism_engine = None
         self._init_mechanism_engine()
+
+        # ── 神经元点阵图（整合意识可视化）──
+        self.neuron_map = NeuronMapManager()
 
     def _read_file(self, filepath: str) -> str:
         try:
@@ -3273,6 +3384,11 @@ class Game:
         # 抑制中间输出（即时精华、内部讨论细节等）
         self._suppress_intermediate_output = True
 
+        # 神经元点阵图：若设置开启，启动独立窗口
+        _settings = _load_settings()
+        if _settings.get("enable_neuron_map", False):
+            self.neuron_map.start()
+
         # 唤醒序列
         self._awakening_sequence()
 
@@ -3341,6 +3457,12 @@ class Game:
         # 恢复实体的存活状态（死亡仪式标记的状态）
         for p in self.players:
             p.alive = _saved_alive.get(p.name, False)
+
+        # 关闭神经元点阵图窗口
+        try:
+            self.neuron_map.stop()
+        except Exception:
+            pass
 
     def _select_integrated_speakers(self) -> List[str]:
         """
@@ -3485,6 +3607,10 @@ class Game:
                         "action": "new",
                     })
         all_discussions = history_discussions + essence_discussions + round_discussions
+        # 神经元点阵图事件回调（仅当窗口运行中时生效）
+        _nm_cb = None
+        if self.neuron_map.is_running:
+            _nm_cb = self.neuron_map.event_callback()
         response = synthesize_with_emergence(
             problem=user_input if is_opening else f"{self.problem}\n用户说: {user_input}",
             round_discussions=all_discussions,
@@ -3494,6 +3620,7 @@ class Game:
             model_name=self.players[0].model_name,
             caller_tag="整合意识-涌现",
             target_experts=getattr(self, "amplification_target", 2000),
+            event_callback=_nm_cb,
         )
         if response:
             return response
@@ -3790,6 +3917,9 @@ class Game:
             game.mechanism_engine.add_builtin_skills()
             skills_dir = game.settings.get("skills_dir", "skills")
             game.mechanism_engine.load_skills_from_dir(skills_dir)
+
+        # 神经元点阵图管理器
+        game.neuron_map = NeuronMapManager()
 
         # 恢复辅助模块
         game.goal_mode = data.get("goal_mode", "balance")
@@ -5017,6 +5147,9 @@ _DEFAULT_SETTINGS = {
     "enable_persona_evolution": True,
     "enable_self_awareness": True,
 
+    # ── 神经元点阵图（整合意识可视化）──
+    "enable_neuron_map": False,
+
     # ── 调度器参数 ──
     "exploration_factor": 1.5,
     "diversity_weight": 0.6,
@@ -5301,6 +5434,7 @@ def _mechanism_settings_menu():
             ("enable_observer", "AI观察员", "元评论席"),
             ("enable_persona_evolution", "实体身份演化", "实体身份随讨论演变"),
             ("enable_self_awareness", "自我意识功能", "用户模型注入·命令拦截·AI主动提问"),
+            ("enable_neuron_map", "神经元点阵图", "整合意识启动时显示高维点阵图窗口"),
         ]
 
         print(f"{N2}  {C_DIM('┌─ 机制开关 ─────────────────────────────────┐')}")
@@ -5316,7 +5450,7 @@ def _mechanism_settings_menu():
         _close_box(w)
         print()
         print(f"  {C_YELLOW('▸')}  ", end="")
-        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-14/a/d/q]')}: ").strip().lower()
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-15/a/d/q]')}: ").strip().lower()
 
         if choice == "a":
             for key, _, _ in MECHANISMS:

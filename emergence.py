@@ -1966,6 +1966,71 @@ def _compress_speech(speech: str, max_chars: int = 80) -> str:
     return speech[:max_chars].rstrip('，, ') + '…'
 
 
+def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
+                          all_vectors: list) -> None:
+    """
+    构建神经元点阵图的初始化事件并发送。
+
+    将真实专家作为金色节点、虚拟专家相空间向量投影作为云点，
+    并在真实专家与代表性神经元之间建立连线。
+    """
+    if not event_callback:
+        return
+
+    # 节点：真实专家（前 n_real 个）
+    n_real = len(real_discussions)
+    nodes_vectors = []
+    nodes_labels = []
+    nodes_kinds = []
+    for i, d in enumerate(real_discussions):
+        vec = OpinionPhaseVector(d.get('speech', ''), d.get('player_name', '')).vector
+        nodes_vectors.append(vec.tolist())
+        nodes_labels.append(d.get('player_name', f'专家{i}'))
+        nodes_kinds.append('real')
+
+    # 从 all_vectors 中采样代表性神经元作为连线锚点（避免 2000 节点全连）
+    # 简化：取前 min(20, len(all_vectors)) 个虚拟专家的向量
+    if all_vectors:
+        import random as _rng
+        _rng.seed(42)
+        sample_idx = _rng.sample(range(len(all_vectors)), min(20, len(all_vectors)))
+        for idx in sample_idx:
+            nodes_vectors.append(all_vectors[idx].tolist())
+            nodes_labels.append(f'神经元{len(nodes_labels)}')
+            nodes_kinds.append('rep')
+
+    # 连线：真实专家之间 + 真实专家到最近采样神经元
+    edges = []
+    if n_real >= 2:
+        for i in range(n_real):
+            for j in range(i + 1, n_real):
+                edges.append([i, j, 1.0])
+    # 每个真实专家连到 2 个采样神经元
+    n_rep = max(0, len(nodes_vectors) - n_real)
+    for i in range(min(n_real, 4)):
+        for k in range(2):
+            if n_rep > 0:
+                j = n_real + (i * 2 + k) % n_rep
+                edges.append([i, j, 0.7])
+
+    # 云点下采样（UDP 数据报限 64KB，最多传 250 个背景点）
+    _cloud = []
+    if all_vectors:
+        step = max(1, len(all_vectors) // 250)
+        _cloud = [v.tolist() for v in all_vectors[::step]][:250]
+
+    event_callback({
+        "type": "init",
+        "all_vectors": _cloud,
+        "nodes": {
+            "vectors": nodes_vectors,
+            "labels": nodes_labels,
+            "kinds": nodes_kinds,
+        },
+        "edges": edges,
+    })
+
+
 def _calc_emergence_potential(essence_pool, expert_count: int, round_count: int) -> float:
     """
     （兼容）计算涌现势能。
@@ -2109,7 +2174,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
                                 essence_pool, round_count: int,
                                 llm_client, model_name: str,
                                 caller_tag: str = "涌现综合",
-                                target_experts: int = 2000) -> str:
+                                target_experts: int = 2000,
+                                event_callback: callable = None) -> str:
     """
     使用相变拓扑引擎进行综合的核心函数（超级相变引擎）。
 
@@ -2127,15 +2193,25 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
       llm_client: LLMClient 实例
       model_name: 模型名
       target_experts: 目标专家数（含虚拟专家），默认 100
+      event_callback: 可选，接收推理过程事件 dict（用于神经元点阵图实时显示）
 
     返回：
       str: 综合后的统一回复
     """
+    # 事件发射辅助（供神经元点阵图实时显示）
+    def _emit(event: dict):
+        if event_callback:
+            try:
+                event_callback(event)
+            except Exception:
+                pass
+
     # 使用虚拟专家生成器将 10 人放大为 100 人效果
     n_real = len(round_discussions)
     use_amplification = n_real >= 3 and n_real < target_experts
 
     if use_amplification:
+        _emit({"type": "status", "text": f"虚拟专家生成中：{n_real} 个真实专家 → {target_experts} 个神经元..."})
         generator = VirtualExpertGenerator(round_discussions, target_experts=target_experts)
         amplified_discussions = generator.get_all_discussions()
         amp_ratio = generator.amplification_ratio
@@ -2150,6 +2226,11 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         # 压缩神经元发言（只保留第一句/关键句），大幅降低 token 消耗
         for nd in neuron_experts:
             nd['speech'] = _compress_speech(nd.get('speech', ''))
+        # ── 推送神经元点阵图初始化数据 ──
+        try:
+            _emit_init_neuron_map(event_callback, round_discussions, all_vectors)
+        except Exception:
+            pass
     else:
         amplified_discussions = round_discussions
         amp_ratio = 1.0
@@ -2167,6 +2248,18 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     )
     level = engine.compute_emergence_level()
     metrics = engine.emergence_metrics
+
+    # 推送涌现层级事件
+    _emit({
+        "type": "phase",
+        "text": f"涌现层级判定: Level {level}",
+        "level": level,
+    })
+    # 高亮代表性神经元
+    _emit({
+        "type": "highlight",
+        "nodes": list(range(min(8, len(round_discussions)))),
+    })
 
     # 精华池摘要
     essence_summary = "（空）"
@@ -2199,6 +2292,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
 
     # Level 1: 交叉耦合综合（非线性耦合矩阵）
     if level == 1:
+        _emit({"type": "phase", "text": "L1 交叉耦合综合：非线性耦合矩阵 + 交叉审视", "level": 1})
+        _emit({"type": "signal", "from": 0, "to": 1, "text": "耦合矩阵构建"})
         # 第一步：交叉审视
         critique_prompt = _build_cross_critique_prompt(neuron_experts)
         try:
@@ -2213,6 +2308,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             critique_result = ""
 
         # 第二步：基于交叉审视的元综合
+        _emit({"type": "signal", "from": 1, "to": 0, "text": "元综合输出"})
         synth_prompt = _build_meta_synthesis_prompt(
             problem, neuron_experts, critique_result, essence_summary
         )
@@ -2230,6 +2326,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
 
     # Level 2: 序参量涌现（相变触发）
     if level == 2:
+        _emit({"type": "phase", "text": "L2 序参量涌现：临界慢化检测 + 相变触发", "level": 2})
+        _emit({"type": "signal", "from": 0, "to": 2, "text": "临界慢化检测"})
         # 第一步：深度交叉审视
         critique_prompt = _build_cross_critique_prompt(neuron_experts)
         try:
@@ -2244,6 +2342,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             critique_result = ""
 
         # 第二步：涌现综合（相变级）
+        _emit({"type": "signal", "from": 2, "to": 1, "text": "相变触发 → 涌现综合"})
         synth_prompt = _build_emergence_synthesis_prompt(
             problem, neuron_experts, critique_result, essence_summary
         )
@@ -2261,6 +2360,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
 
     # Level 3: 自组织临界综合（沙崩涌现）
     if level == 3:
+        _emit({"type": "phase", "text": "L3 自组织临界：沙堆模型 + 沙崩涌现", "level": 3})
+        _emit({"type": "signal", "from": 1, "to": 3, "text": "沙崩传播中..."})
         # 第一步：深度交叉审视
         critique_prompt = _build_cross_critique_prompt(neuron_experts)
         try:
@@ -2275,6 +2376,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             critique_result = ""
 
         # 第二步：自组织临界综合
+        _emit({"type": "signal", "from": 3, "to": 0, "text": "临界涌现完成"})
         synth_prompt = _build_soc_synthesis_prompt(
             problem, neuron_experts, critique_result, essence_summary, metrics
         )
@@ -2292,6 +2394,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
 
     # Level 4: 量子叠加与混沌边缘（深度质变）
     if level == 4:
+        _emit({"type": "phase", "text": "L4 量子叠加：叠加态坍缩 + 混沌边缘", "level": 4})
+        _emit({"type": "signal", "from": 2, "to": 3, "text": "量子干涉建立"})
         # 第一步：量子干涉态分析
         critique_prompt = _build_cross_critique_prompt(neuron_experts)
         try:
@@ -2306,6 +2410,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             critique_result = ""
 
         # 第二步：递归深度交叉审视（二次审视）
+        _emit({"type": "signal", "from": 3, "to": 2, "text": "递归元审视"})
         second_critique = ""
         try:
             second_prompt = (
@@ -2330,6 +2435,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         combined_critique = f"【第一轮交叉审视】\n{critique_result}\n\n【第二轮递归元审视】\n{second_critique}"
 
         # 第三步：量子叠加综合
+        _emit({"type": "signal", "from": 0, "to": 3, "text": "叠加态坍缩 · 深度质变"})
         synth_prompt = _build_quantum_synthesis_prompt(
             problem, neuron_experts, combined_critique, essence_summary, metrics
         )
