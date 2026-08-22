@@ -1759,10 +1759,9 @@ class PhaseTransitionEngine:
         # 返回所有递归输出的综合
         if len(all_responses) > 1:
             combined = "\n\n".join(all_responses)
-            base = _get_b64_prompt("unified_synth")
             final_prompt = (
-                base
-                + f"\n\n以下是对同一问题的多层次涌现综合结果：\n\n{combined}\n\n"
+                "你是一个统一的意识体。以下是对同一问题的多层次涌现综合结果：\n\n"
+                f"{combined}\n\n"
                 f"请将这些层次整合为一个统一的、深刻的回答。"
                 f"直接输出你的最终回答，不要提及讨论过程："
             )
@@ -2004,10 +2003,9 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             f"【{d['player_name']}】\n{d['speech']}"
             for d in round_discussions
         )
-        base_prompt = _get_b64_prompt("unified_synth")
         prompt = (
-            base_prompt
-            + f"\n用户问: {problem}\n\n"
+            f"你是一个统一的意识体。以下是对同一问题的内部讨论记录。\n\n"
+            f"用户问: {problem}\n\n"
             f"内部讨论记录:\n{discussion_text}\n\n"
             f"请直接给出你的统一回复（一段话，不要分段太多，不要提及子模块或讨论过程，就是你自己在回答）。"
         )

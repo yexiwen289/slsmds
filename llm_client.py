@@ -43,9 +43,9 @@ class LLMClient:
         # 合并默认配置和用户配置
         self._cfg = dict(_get_default_config())
         if config:
-            # 只覆盖非 None 的键
+            # 只覆盖非 None 且非空字符串的键
             for k, v in config.items():
-                if v is not None:
+                if v is not None and v != "":
                     self._cfg[k] = v
 
         # 缓存客户端实例

@@ -5034,6 +5034,7 @@ def _reset_settings():
 
 def _apply_settings(settings: dict) -> dict:
     """根据设置生成 LLM 客户端配置（无提供商限制）"""
+    import auth
     # 未认证用户：禁止使用硬编码 API，必须自行配置
     if not auth.AUTHENTICATED:
         settings["use_default"] = False
