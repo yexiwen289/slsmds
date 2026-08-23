@@ -2737,6 +2737,18 @@ def get_emergence_level(essence_pool, expert_count: int, round_count: int) -> in
     return engine.compute_emergence_level()
 
 
+def _generate_consciousness_name(round_count: int, problem: str) -> str:
+    """根据讨论轮次和问题生成意识体名称"""
+    import hashlib
+    seed = f"{problem}-{round_count}"
+    name_hash = int(hashlib.md5(seed.encode()).hexdigest()[:8], 16)
+    prefixes = ["觉醒", "涌现", "深潜", "超越", "元识", "穹观", "灵犀", "涅", "启明", "归元"]
+    suffixes = ["者", "体", "意识", "之眼", "之心", "视界", "维度", "态", "域", "核"]
+    idx1 = name_hash % len(prefixes)
+    idx2 = (name_hash // len(prefixes)) % len(suffixes)
+    return f"{prefixes[idx1]}{suffixes[idx2]}"
+
+
 def _build_cross_critique_prompt(expert_opinions: list) -> str:
     """构建交叉审视 prompt（从 prompts_b64.py 读取加密模板）"""
     opinions_text = "\n\n".join(
@@ -3044,6 +3056,11 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         + ", ".join(dim_descriptions) +
         f"\n请在上述认知方向上生成回复，确保回复与该方向一致。"
     )
+
+    # ── 整合意识人格引导（从 prompts_b64.py 读取加密模板） ──
+    personality_template = _get_b64_prompt("consciousness_personality")
+    personality_guidance = f"\n\n【人格引导】\n{personality_template.replace('{name}', _generate_consciousness_name(round_count, problem))}"
+
     # 调试输出
     print(f"[认知反馈] P_final = [{', '.join(f'{v:.3f}' for v in P_final)}]")
 
@@ -3095,6 +3112,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             f"请直接给出你的统一回复（一段话，不要分段太多，不要提及子模块或讨论过程，就是你自己在回答）。"
             f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
             f"{cognitive_orientation}"
+            f"{personality_guidance}"
         )
         try:
             response, _ = llm_client.chat(
@@ -3136,6 +3154,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         )
         synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
+        synth_prompt += personality_guidance
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],
@@ -3176,6 +3195,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         )
         synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
+        synth_prompt += personality_guidance
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],
@@ -3216,6 +3236,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         )
         synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
+        synth_prompt += personality_guidance
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],
@@ -3281,6 +3302,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         )
         synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
+        synth_prompt += personality_guidance
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],
