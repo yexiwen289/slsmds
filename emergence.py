@@ -1527,7 +1527,205 @@ class VirtualExpertGenerator:
 
 
 # ═══════════════════════════════════════════════════════════════
-# 8. 相变拓扑引擎主类（增强版）
+# 8. 时间维度耦合记忆（让引擎在时间中演化）
+# ═══════════════════════════════════════════════════════════════
+
+class TemporalCouplingMemory:
+    """
+    时间维度耦合记忆——让相变引擎在时间中演化。
+
+    核心机制：
+    1. 累积耦合：每轮观点交互后更新耦合矩阵，形成"认知记忆"
+    2. 连接净化：弱连接随时间衰减，强连接被强化（突触可塑性）
+    3. 拓扑重构：根据交互频率和相似度演化，自动调整连接结构
+    4. 时间衰减：未被强化的连接随时间指数衰减（遗忘曲线）
+
+    物理直觉：
+    - 大脑的突触可塑性：经常同时激活的神经元之间连接增强
+    - 遗忘曲线：长期不用的连接自然衰减
+    - 修剪机制：冗余连接被剪除，保留高效连接
+    """
+
+    def __init__(self, n_experts_max: int = 200, decay_rate: float = 0.15,
+                 prune_threshold: float = 0.05, hebbian_strength: float = 0.1):
+        self.n_max = n_experts_max
+        self.decay_rate = decay_rate          # 时间衰减率（遗忘速度）
+        self.prune_threshold = prune_threshold  # 剪枝阈值
+        self.hebbian_strength = hebbian_strength  # Hebbian 强化系数
+        self.round = 0
+
+        # 累积耦合矩阵 (n_max × n_max)：跨轮次的"认知记忆"
+        self.cumulative_coupling = np.zeros((n_experts_max, n_experts_max))
+        # 交互频率矩阵（每对专家互动次数）
+        self.interaction_frequency = np.zeros((n_experts_max, n_experts_max), dtype=int)
+        # 连接年龄（记录连接存在了多少轮未被强化）
+        self.connection_age = np.zeros((n_experts_max, n_experts_max), dtype=int)
+        # 拓扑演化历史记录
+        self.topology_history = []
+        # 连接质量评分（基于历史交互的加权评分）
+        self.connection_quality = np.zeros((n_experts_max, n_experts_max))
+
+    def update(self, phase_vectors: list, round_count: int):
+        """
+        用本轮专家观点更新耦合记忆。
+
+        流程：
+        1. 计算本轮即时耦合矩阵
+        2. 时间衰减：所有旧连接按遗忘曲线衰减
+        3. 融合新耦合：新交互注入累积记忆
+        4. Hebbian 强化：高频交互对连接增强
+        5. 连接净化：剪枝弱连接，淘汰冗余
+        6. 记录拓扑状态
+        """
+        n = len(phase_vectors)
+        self.round = round_count
+
+        # 1. 计算本轮即时耦合
+        current_coupling = np.zeros((n, n))
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    continue
+                sim = phase_vectors[i].similarity(phase_vectors[j])
+                coupling = math.tanh(2.5 * (sim - 0.3))
+                current_coupling[i, j] = coupling
+
+        # 2. 时间衰减（遗忘曲线）：所有旧连接衰减
+        #    衰减因子 = e^(-decay_rate * delta_t)
+        decay_factor = math.exp(-self.decay_rate)
+        self.cumulative_coupling[:n, :n] *= decay_factor
+        self.connection_age[:n, :n] += 1
+
+        # 3. 融合本轮耦合（新信息注入）
+        #    新耦合以 0.3 的学习率融入累积记忆
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    continue
+                self.cumulative_coupling[i, j] += current_coupling[i, j] * 0.3
+                self.interaction_frequency[i, j] += 1
+                self.connection_age[i, j] = 0  # 重置年龄（被强化了）
+
+        # 4. Hebbian 强化：高频交互对连接增强
+        #    经常同时说话/互评的专家之间连接更强
+        max_freq = max(1, np.max(self.interaction_frequency[:n, :n]))
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    continue
+                freq_ratio = self.interaction_frequency[i, j] / max_freq
+                if freq_ratio > 0.3:
+                    # 高频交互对 → 连接强化
+                    self.cumulative_coupling[i, j] *= (1.0 + self.hebbian_strength * freq_ratio)
+                    # 更新连接质量评分
+                    self.connection_quality[i, j] = min(1.0,
+                        self.connection_quality[i, j] + 0.1 * freq_ratio)
+
+        # 5. 连接净化（自动剪枝 + 淘汰）
+        self._purify(n)
+
+        # 6. 记录拓扑状态
+        self._record_topology(n)
+
+    def _purify(self, n: int):
+        """
+        自动净化连接网络。
+
+        三个净化操作：
+        a) 弱连接剪枝：低于阈值的连接直接归零
+        b) 强连接强化：高强度连接进一步突触增强
+        c) 老连接淘汰：超过 5 轮未被强化的连接大幅衰减
+        """
+        # a) 弱连接剪枝
+        weak_mask = np.abs(self.cumulative_coupling[:n, :n]) < self.prune_threshold
+        self.cumulative_coupling[:n, :n][weak_mask] = 0.0
+        self.connection_quality[:n, :n][weak_mask] = 0.0
+
+        # b) 强连接强化（突触可塑性）
+        strong_mask = np.abs(self.cumulative_coupling[:n, :n]) > 0.5
+        self.cumulative_coupling[:n, :n][strong_mask] *= 1.05  # 5% 强化
+        if np.any(strong_mask):
+            self.connection_quality[:n, :n][strong_mask] = np.minimum(
+                self.connection_quality[:n, :n][strong_mask] + 0.05, 1.0)
+
+        # c) 老连接淘汰（遗忘）
+        aged_mask = self.connection_age[:n, :n] > 5
+        self.cumulative_coupling[:n, :n][aged_mask] *= 0.3  # 大幅衰减
+        self.connection_quality[:n, :n][aged_mask] *= 0.5
+
+        # 确保对角线为零
+        for i in range(n):
+            self.cumulative_coupling[i, i] = 0.0
+
+    def get_coupling_matrix(self, n: int) -> np.ndarray:
+        """获取当前 n×n 大小的累积耦合矩阵"""
+        return self.cumulative_coupling[:n, :n].copy()
+
+    def get_network_stats(self, n: int) -> dict:
+        """
+        获取当前网络统计信息。
+        用于生成拓扑状态报告。
+        """
+        matrix = self.cumulative_coupling[:n, :n]
+        active = np.sum(np.abs(matrix) > self.prune_threshold)
+        total = n * (n - 1)
+        density = active / total if total > 0 else 0
+        pos = np.sum(matrix > self.prune_threshold)
+        neg = np.sum(matrix < -self.prune_threshold)
+
+        return {
+            "round": self.round,
+            "n_experts": n,
+            "active_connections": int(active),
+            "connection_density": round(density, 4),
+            "positive_connections": int(pos),
+            "negative_connections": int(neg),
+            "avg_strength": round(float(np.mean(np.abs(matrix[matrix != 0]))) if np.any(matrix != 0) else 0, 4),
+            "avg_quality": round(float(np.mean(self.connection_quality[:n, :n])), 4),
+            "purification_ratio": round(1.0 - density, 4),
+        }
+
+    def _record_topology(self, n: int):
+        """记录拓扑状态到历史"""
+        stats = self.get_network_stats(n)
+        self.topology_history.append(stats)
+        # 保留最近 50 轮历史
+        if len(self.topology_history) > 50:
+            self.topology_history = self.topology_history[-50:]
+
+    def get_topology_trend(self) -> str:
+        """
+        拓扑演化趋势分析。
+        返回拓扑变化方向的文本描述。
+        """
+        if len(self.topology_history) < 3:
+            return "— 积累中（需≥3轮）"
+
+        recent = self.topology_history[-3:]
+        density_trend = [r["connection_density"] for r in recent]
+        quality_trend = [r["avg_quality"] for r in recent]
+
+        # 密度趋势
+        if density_trend[-1] > density_trend[0] * 1.1:
+            density_dir = "↑ 连接密度上升（网络生长）"
+        elif density_trend[-1] < density_trend[0] * 0.9:
+            density_dir = "↓ 连接密度下降（网络修剪）"
+        else:
+            density_dir = "— 连接密度稳定"
+
+        # 质量趋势
+        if quality_trend[-1] > quality_trend[0] * 1.05:
+            quality_dir = "↑ 连接质量提升（突触强化）"
+        elif quality_trend[-1] < quality_trend[0] * 0.95:
+            quality_dir = "↓ 连接质量下降（突触衰退）"
+        else:
+            quality_dir = "— 质量稳定"
+
+        return f"{density_dir} | {quality_dir}"
+
+
+# ═══════════════════════════════════════════════════════════════
+# 9. 相变拓扑引擎主类（增强版）
 # ═══════════════════════════════════════════════════════════════
 
 class PhaseTransitionEngine:
@@ -1564,7 +1762,8 @@ class PhaseTransitionEngine:
     def __init__(self, round_discussions: list, essence_pool, round_count: int,
                  amplification_ratio: float = 1.0, diversity_index: float = 0.0,
                  is_amplified: bool = False,
-                 precomputed_vectors: list = None):
+                 precomputed_vectors: list = None,
+                 temporal_memory: 'TemporalCouplingMemory' = None):
         """
         参数:
             round_discussions: 讨论数据
@@ -1576,6 +1775,9 @@ class PhaseTransitionEngine:
             precomputed_vectors: 预计算的相空间向量列表（可选）。
                 当提供时，直接用这些向量构建耦合矩阵，而非从 speech 文本重新嵌入。
                 这避免了虚拟专家文本→向量往返的信息损失。
+            temporal_memory: 时间维度耦合记忆（可选）。
+                提供时，引擎的耦合矩阵会融合历史累积的耦合信息，
+                实现跨轮次的知识累积和连接净化。
         """
         self.discussions = round_discussions
         self.essence_pool = essence_pool
@@ -1584,6 +1786,7 @@ class PhaseTransitionEngine:
         self.amplification_ratio = max(1.0, amplification_ratio)
         self.diversity_index = max(0.0, min(1.0, diversity_index))
         self.is_amplified = is_amplified
+        self.temporal_memory = temporal_memory  # 时间维度耦合记忆
 
         # 构建相空间
         # 如果提供预计算向量，直接使用（避免虚拟专家文本→向量往返的信息损失）
@@ -1597,6 +1800,26 @@ class PhaseTransitionEngine:
 
         # 构建耦合矩阵
         self.coupling = NonLinearCouplingMatrix(self.phase_vectors)
+
+        # ── 时间维度融合：将历史累积耦合注入当前耦合矩阵 ──
+        # 这使引擎的"观点相互作用"受到跨轮次记忆的影响
+        if temporal_memory is not None:
+            n = self.n_experts
+            hist_coupling = temporal_memory.get_coupling_matrix(n)
+            if np.any(hist_coupling != 0):
+                # 历史耦合以 0.4 的权重融合进当前耦合
+                # 融合后重新计算特征值谱
+                self.coupling.matrix = (
+                    0.6 * self.coupling.matrix +
+                    0.4 * hist_coupling
+                )
+                self.coupling.eigenvalues = self.coupling._compute_eigenvalues()
+                # 更新耦合直方图
+                pairs = [self.coupling.matrix[i, j]
+                         for i in range(n) for j in range(n) if i != j]
+                self.coupling.coupling_histogram = Counter()
+                for c in pairs:
+                    self.coupling.coupling_histogram[int(c * 10) / 10] += 1
 
         # 序参量动力学（放大模式下更多模拟步数）
         self.order_param = OrderParameterDynamics(self.coupling)
@@ -2185,7 +2408,9 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
                                 llm_client, model_name: str,
                                 caller_tag: str = "涌现综合",
                                 target_experts: int = 2000,
-                                event_callback: callable = None) -> str:
+                                event_callback: callable = None,
+                                current_round_pairs: list = None,
+                                temporal_memory: 'TemporalCouplingMemory' = None) -> str:
     """
     使用相变拓扑引擎进行综合的核心函数（超级相变引擎）。
 
@@ -2204,6 +2429,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
       model_name: 模型名
       target_experts: 目标专家数（含虚拟专家），默认 100
       event_callback: 可选，接收推理过程事件 dict（用于神经元点阵图实时显示）
+      temporal_memory: 可选，时间维度耦合记忆。提供时引擎会融合历史累积的
+          耦合信息，并在综合后自动更新记忆，实现跨轮次的知识累积和连接净化。
 
     返回：
       str: 综合后的统一回复
@@ -2241,6 +2468,13 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             _emit_init_neuron_map(event_callback, round_discussions, all_vectors)
         except Exception:
             pass
+        # ── 发射本轮讨论信号（专家间的信息传递） ──
+        if event_callback and current_round_pairs:
+            for from_i, to_j, text in current_round_pairs:
+                try:
+                    event_callback({"type": "signal", "from": from_i, "to": to_j, "text": text[:40]})
+                except Exception:
+                    pass
     else:
         amplified_discussions = round_discussions
         amp_ratio = 1.0
@@ -2255,9 +2489,18 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         amplification_ratio=amp_ratio,
         diversity_index=div_index,
         is_amplified=use_amplification,
+        temporal_memory=temporal_memory,
     )
     level = engine.compute_emergence_level()
     metrics = engine.emergence_metrics
+
+    # ── 更新时间维度耦合记忆 ──
+    # 将本轮真实专家的观点向量注入记忆，使引擎在时间中演化
+    if temporal_memory is not None:
+        try:
+            temporal_memory.update(engine.phase_vectors, round_count)
+        except Exception:
+            pass
 
     # 推送涌现层级事件
     _emit({

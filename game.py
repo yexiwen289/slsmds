@@ -238,6 +238,8 @@ class Game:
 
         # ── 神经元点阵图（整合意识可视化）──
         self.neuron_map = NeuronMapManager()
+        # ── 时间维度耦合记忆（跨轮次连接净化与拓扑演化）──
+        self.temporal_memory = None
 
     def _read_file(self, filepath: str) -> str:
         try:
@@ -3366,6 +3368,10 @@ class Game:
         但对外呈现为单一统一智能体的回应。
         用户输入 → 多专家内部讨论 → 综合为统一回复。
         """
+        # 初始化时间维度耦合记忆（跨轮次连接净化与拓扑演化）
+        from emergence import TemporalCouplingMemory
+        self.temporal_memory = TemporalCouplingMemory(n_experts_max=200)
+
         # 保存所有实体的存活状态，并全部复活（死亡仪式已标记它们为消亡）
         _saved_alive = {p.name: p.alive for p in self.players}
         for p in self.players:
@@ -3607,6 +3613,14 @@ class Game:
                         "action": "new",
                     })
         all_discussions = history_discussions + essence_discussions + round_discussions
+        # 构建本轮辩论信号（专家间信息传递 → 神经元点阵图）
+        debate_signals = []
+        offset = len(history_discussions) + len(essence_discussions)
+        for i, d in enumerate(round_discussions):
+            for j, od in enumerate(round_discussions):
+                if i != j:
+                    text = d.get("key_insight", "") or d.get("speech", "")[:60]
+                    debate_signals.append((offset + i, offset + j, text))
         # 神经元点阵图事件回调（仅当窗口运行中时生效）
         _nm_cb = None
         if self.neuron_map.is_running:
@@ -3621,6 +3635,8 @@ class Game:
             caller_tag="整合意识-涌现",
             target_experts=getattr(self, "amplification_target", 2000),
             event_callback=_nm_cb,
+            current_round_pairs=debate_signals,
+            temporal_memory=self.temporal_memory,
         )
         if response:
             return response
