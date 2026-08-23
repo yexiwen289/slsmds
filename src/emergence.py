@@ -282,10 +282,29 @@ class NonLinearCouplingMatrix:
         return W, hist
 
     def _compute_eigenvalues(self) -> np.ndarray:
-        """计算耦合矩阵的特征值谱"""
+        """计算耦合矩阵的特征值谱。
+
+        大矩阵（n > 100）使用幂迭代估算谱半径，避免 O(n³) 全谱分解。
+        小矩阵使用精确特征值分解。
+        """
         if self.n == 0:
             return np.array([])
-        return np.linalg.eigvalsh(self.matrix)
+        if self.n > 100:
+            # 幂迭代估算最大特征值，O(n²) 而非 O(n³)
+            return np.array([self._power_iteration()])
+        return np.linalg.eigvals(self.matrix)
+
+    def _power_iteration(self, n_iter: int = 50) -> float:
+        """幂迭代估算最大特征值（用于大矩阵，避免 O(n³) 全谱分解）"""
+        v = np.random.randn(self.n)
+        v = v / np.linalg.norm(v)
+        for _ in range(n_iter):
+            w = self.matrix @ v
+            v_new = w / np.linalg.norm(w)
+            if np.linalg.norm(v_new - v) < 1e-6:
+                break
+            v = v_new
+        return float(v @ self.matrix @ v)
 
     @property
     def spectral_radius(self) -> float:
@@ -2884,9 +2903,11 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     elif n_real < 20:
         target_experts = max(500, n_real * 50)
     else:
-        target_experts = max(1000, n_real * 20)
+        target_experts = max(500, n_real * 20)
     # 后期轮次放大更多（更多素材可供涌现）
-    target_experts = int(target_experts * (1.0 + 0.1 * min(round_count, 20)))
+    target_experts = int(target_experts * (1.0 + 0.1 * min(round_count, 10)))
+    # 上限封顶：防止生成过多虚拟专家导致计算卡顿
+    target_experts = min(target_experts, 800)
     use_amplification = n_real >= 3 and n_real < target_experts
 
     if use_amplification:
@@ -2949,10 +2970,11 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             pass
 
     # 使用相变拓扑引擎（放大版）计算涌现层级
-    print(f"[整合意识] 构建相变拓扑引擎（{len(amplified_discussions)} 个专家）...", flush=True)
+    # 优化：只传入真实专家（而非全部虚拟专家）建耦合矩阵，避免 O(n³) 运算
+    print(f"[整合意识] 构建相变拓扑引擎（{len(round_discussions)} 个真实专家 + 放大率 {amp_ratio:.1f}×）...", flush=True)
     _emit({"type": "thinking", "text": "构建相变拓扑引擎..."})
     engine = PhaseTransitionEngine(
-        amplified_discussions, essence_pool, round_count,
+        round_discussions, essence_pool, round_count,
         amplification_ratio=amp_ratio,
         diversity_index=div_index,
         is_amplified=use_amplification,
