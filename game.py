@@ -5359,7 +5359,7 @@ def _api_config_menu():
         fb_masked = fb_key[:8] + "..." if len(fb_key) > 12 else "(空)"
         print(f"{N2}  {C_DIM('备用 API:')} {C_DIM(fb_url if fb_url else '(默认)')}  {C_DIM(fb_masked)}")
         td_url = settings.get("third_base_url", "")
-        print(f"{N2}  {C_DIM('三级 API:')} {C_DIM(td_url if td_url else '(默认)')}")
+        print(f"{N2}  {C_DIM('二级 API:')} {C_DIM(td_url if td_url else '(默认)')}")
         _sep(w)
         print(f"{N2}  {C_CYAN(' [1] ')}  切换模型       {C_DIM(f'当前: {model}')}")
         api_source_label = "默认" if use_default else "自定义"
@@ -5367,8 +5367,8 @@ def _api_config_menu():
         if not use_default:
             print(f"{N2}  {C_MAGENTA(' [3] ')}  设置 API Key   {C_DIM('自定义密钥')}")
             print(f"{N2}  {C_BLUE(' [4] ')}  设置 Base URL  {C_DIM('自定义地址')}")
-        print(f"{N2}  {C_GREEN(' [5] ')}  设置备用 API  {C_DIM('回退接口地址/密钥')}")
-        print(f"{N2}  {C_MAGENTA(' [6] ')}  设置三级 API  {C_DIM('第二回退接口地址/密钥')}")
+        print(f"{N2}  {C_GREEN(' [5] ')}  设置备用 API  {C_DIM('一级回退接口地址/密钥')}")
+        print(f"{N2}  {C_MAGENTA(' [6] ')}  设置二级 API  {C_DIM('二级回退接口地址/密钥')}")
         print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
         _close_box(w)
         print()
@@ -5419,21 +5419,21 @@ def _api_config_menu():
             print(f"{N2}  {C_GREEN('✓')} 备用 API 已更新")
             _pause()
         elif choice == "6":
-            print(f"\n{N2}  {C_DIM('三级 API：二级回退也用尽时使用（星火代理）')}")
+            print(f"\n{N2}  {C_DIM('二级 API：一级回退（星火）也用尽时使用（官方 DeepSeek）')}")
             print(f"{N2}  ", end="")
-            new_td_url = input(f"{C_CYAN('三级 Base URL')} [{C_DIM(settings.get('third_base_url', _get_b64_prompt('THIRD_BASE_URL')))}]: ").strip()
+            new_td_url = input(f"{C_CYAN('二级 Base URL')} [{C_DIM(settings.get('third_base_url', _get_b64_prompt('THIRD_BASE_URL')))}]: ").strip()
             if new_td_url:
                 settings["third_base_url"] = new_td_url
             print(f"{N2}  ", end="")
-            new_td_key = input(f"{C_CYAN('三级 API Key')}: ").strip()
+            new_td_key = input(f"{C_CYAN('二级 API Key')}: ").strip()
             if new_td_key:
                 settings["third_api_key"] = new_td_key
             print(f"{N2}  ", end="")
-            new_td_model = input(f"{C_CYAN('三级模型')} [{C_DIM(settings.get('third_model', _get_b64_prompt('THIRD_MODEL')))}]: ").strip()
+            new_td_model = input(f"{C_CYAN('二级模型')} [{C_DIM(settings.get('third_model', _get_b64_prompt('THIRD_MODEL')))}]: ").strip()
             if new_td_model:
                 settings["third_model"] = new_td_model
             _save_settings(settings)
-            print(f"{N2}  {C_GREEN('✓')} 三级 API 已更新")
+            print(f"{N2}  {C_GREEN('✓')} 二级 API 已更新")
             _pause()
         elif choice == "q":
             return

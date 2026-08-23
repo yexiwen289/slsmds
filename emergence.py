@@ -1966,6 +1966,16 @@ def _compress_speech(speech: str, max_chars: int = 80) -> str:
     return speech[:max_chars].rstrip('，, ') + '…'
 
 
+def _truncate_response(response: str, max_chars: int = 200) -> str:
+    """截断整合意识回复到 max_chars 字以内，超出时末尾加…"""
+    if not response:
+        return response
+    text = response.strip()
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip('，, ') + '…'
+
+
 def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
                           all_vectors: list) -> None:
     """
@@ -1995,7 +2005,7 @@ def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
         _rng.seed(42)
         sample_idx = _rng.sample(range(len(all_vectors)), min(20, len(all_vectors)))
         for idx in sample_idx:
-            nodes_vectors.append(all_vectors[idx].tolist())
+            nodes_vectors.append(all_vectors[idx].vector.tolist())
             nodes_labels.append(f'神经元{len(nodes_labels)}')
             nodes_kinds.append('rep')
 
@@ -2017,7 +2027,7 @@ def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
     _cloud = []
     if all_vectors:
         step = max(1, len(all_vectors) // 250)
-        _cloud = [v.tolist() for v in all_vectors[::step]][:250]
+        _cloud = [v.vector.tolist() for v in all_vectors[::step]][:250]
 
     event_callback({
         "type": "init",
@@ -2277,6 +2287,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             f"用户问: {problem}\n\n"
             f"内部讨论记录:\n{discussion_text}\n\n"
             f"请直接给出你的统一回复（一段话，不要分段太多，不要提及子模块或讨论过程，就是你自己在回答）。"
+            f"\n\n请简短回答，控制在200字以内，精炼有力。"
         )
         try:
             response, _ = llm_client.chat(
@@ -2312,6 +2323,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         synth_prompt = _build_meta_synthesis_prompt(
             problem, neuron_experts, critique_result, essence_summary
         )
+        synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],
@@ -2346,6 +2358,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         synth_prompt = _build_emergence_synthesis_prompt(
             problem, neuron_experts, critique_result, essence_summary
         )
+        synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],
@@ -2380,6 +2393,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         synth_prompt = _build_soc_synthesis_prompt(
             problem, neuron_experts, critique_result, essence_summary, metrics
         )
+        synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],
@@ -2439,6 +2453,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         synth_prompt = _build_quantum_synthesis_prompt(
             problem, neuron_experts, combined_critique, essence_summary, metrics
         )
+        synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],
