@@ -2240,47 +2240,57 @@ def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
     """
     构建神经元点阵图的初始化事件并发送。
 
-    将真实专家作为金色节点、虚拟专家相空间向量投影作为云点，
-    并在真实专家与代表性神经元之间建立连线。
+    所有节点（真实专家 + 虚拟专家代表）基于相空间余弦相似度
+    建立拓扑连接，形成高维神经网络。
     """
     if not event_callback:
         return
 
-    # 节点：真实专家（前 n_real 个）
-    n_real = len(real_discussions)
+    # 节点：真实专家
     nodes_vectors = []
     nodes_labels = []
     nodes_kinds = []
+    n_real = len(real_discussions)
     for i, d in enumerate(real_discussions):
         vec = OpinionPhaseVector(d.get('speech', ''), d.get('player_name', '')).vector
         nodes_vectors.append(vec.tolist())
         nodes_labels.append(d.get('player_name', f'专家{i}'))
         nodes_kinds.append('real')
 
-    # 从 all_vectors 中采样代表性神经元作为连线锚点（避免 2000 节点全连）
-    # 简化：取前 min(20, len(all_vectors)) 个虚拟专家的向量
+    # 采样虚拟专家代表（与真实专家统一拓扑连接）
     if all_vectors:
         import random as _rng
         _rng.seed(42)
-        sample_idx = _rng.sample(range(len(all_vectors)), min(20, len(all_vectors)))
+        n_rep = min(20, len(all_vectors))
+        sample_idx = _rng.sample(range(len(all_vectors)), n_rep)
         for idx in sample_idx:
             nodes_vectors.append(all_vectors[idx].vector.tolist())
-            nodes_labels.append(f'神经元{len(nodes_labels)}')
+            nodes_labels.append(f'V{idx}')
             nodes_kinds.append('rep')
 
-    # 连线：真实专家之间 + 真实专家到最近采样神经元
+    # ── 基于相空间余弦相似度建立拓扑连接 ──
+    # 所有节点（真实+虚拟）统一计算相似度矩阵
+    import numpy as np
+    vecs = np.array(nodes_vectors, dtype=np.float64)
+    norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+    norms[norms < 1e-12] = 1.0
+    sim = (vecs @ vecs.T) / (norms @ norms.T)  # cosine similarity
+    np.fill_diagonal(sim, 0.0)  # 自连接归零
+
+    # 每个节点保留 top-K 最强连接
+    n_total = len(nodes_vectors)
+    K = min(5, n_total - 1)
     edges = []
-    if n_real >= 2:
-        for i in range(n_real):
-            for j in range(i + 1, n_real):
-                edges.append([i, j, 1.0])
-    # 每个真实专家连到 2 个采样神经元
-    n_rep = max(0, len(nodes_vectors) - n_real)
-    for i in range(min(n_real, 4)):
-        for k in range(2):
-            if n_rep > 0:
-                j = n_real + (i * 2 + k) % n_rep
-                edges.append([i, j, 0.7])
+    seen = set()
+    for i in range(n_total):
+        top_k = np.argsort(sim[i])[::-1][:K]
+        for j in top_k:
+            if sim[i, j] > 0.15:  # 相似度阈值
+                key = (min(i, j), max(i, j))
+                if key not in seen:
+                    seen.add(key)
+                    w = max(0.3, min(1.0, float(sim[i, j])))
+                    edges.append([i, j, w])
 
     # 云点下采样（UDP 数据报限 64KB，最多传 250 个背景点）
     _cloud = []

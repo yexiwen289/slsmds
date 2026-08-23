@@ -32,7 +32,7 @@ import numpy as np
 
 from PySide6.QtCore import Qt, QTimer, QPointF
 from PySide6.QtGui import (QPainter, QColor, QPen, QBrush, QFont,
-                           QRadialGradient, QPolygonF)
+                           QRadialGradient)
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QFrame)
 
@@ -152,25 +152,37 @@ class NeuronCanvas(QWidget):
         # 摄像机
         self.cam = OrbitCamera()
 
+        # ── 拓扑过渡动画 ──
+        # 每次收到 init 事件后，从旧状态平滑过渡到新状态
+        self._morph_t = 1.0       # 0.0 → 1.0，1.0 = 过渡完成
+        self._morph_old = None    # {nodes, edges, all_pts} 旧状态快照
+
         # 动画定时器
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(30)
 
-    # ── 数据装载 ──
+    # ── 平滑过渡数据装载 ──
     def load_init(self, payload: dict):
+        """从旧状态平滑过渡到新状态"""
         all_vectors = payload.get("all_vectors", [])
         nodes = payload.get("nodes", {})
         edges = payload.get("edges", [])
 
-        # 背景云点
-        self.all_pts = []
+        # 保存旧状态快照
+        self._morph_old = {
+            "all_pts": list(self.all_pts),
+            "nodes": [dict(n) for n in self.nodes],
+            "edges": list(self.edges),
+        }
+
+        # 计算新状态
+        new_pts = []
         if all_vectors:
             proj = _pca_3d(np.array(all_vectors))
-            self.all_pts = [(float(x), float(y), float(z)) for x, y, z in proj]
+            new_pts = [(float(x), float(y), float(z)) for x, y, z in proj]
 
-        # 节点（代表神经元/真实专家）
-        self.nodes = []
+        new_nodes = []
         node_vectors = nodes.get("vectors", [])
         labels = nodes.get("labels", [])
         kinds = nodes.get("kinds", [])
@@ -180,19 +192,118 @@ class NeuronCanvas(QWidget):
                 kind = kinds[idx] if idx < len(kinds) else "rep"
                 color = REAL_COLOR if kind == "real" else REP_COLOR
                 r = 8.0 if kind == "real" else 5.5
-                self.nodes.append({
+                new_nodes.append({
                     "x": float(x), "y": float(y), "z": float(z), "r": r,
                     "color": color,
                     "label": labels[idx] if idx < len(labels) else f"N{idx}",
                     "kind": kind,
                 })
 
-        # 边
-        self.edges = [(int(a), int(b), float(w)) for a, b, w in edges]
+        new_edges = [(int(a), int(b), float(w)) for a, b, w in edges]
+
+        # 如果当前没有旧状态（首次加载），直接设置
+        if not self.nodes:
+            self.all_pts = new_pts
+            self.nodes = new_nodes
+            self.edges = new_edges
+            self._morph_t = 1.0
+            self._morph_old = None
+        else:
+            # 保存新目标，开始过渡
+            self._morph_target = {
+                "all_pts": new_pts,
+                "nodes": new_nodes,
+                "edges": new_edges,
+            }
+            self._morph_t = 0.0
 
         self.particles.clear()
         self.highlight.clear()
         self.update()
+
+    # ── 获取当前过渡插值数据 ──
+    def _get_morph_data(self):
+        """返回当前过渡帧的数据（插值后的状态）"""
+        if self._morph_t >= 1.0 or self._morph_target is None:
+            return  # 过渡完成或无过渡，直接使用当前数据
+
+        t = self._morph_t  # 0~1
+        # 缓动函数：ease-out cubic，让动画更自然
+        ease = 1.0 - (1.0 - t) ** 3
+
+        old = self._morph_old
+        target = self._morph_target
+
+        # 云点插值（逐点一一对应）
+        old_pts = old["all_pts"]
+        target_pts = target["all_pts"]
+        if old_pts and target_pts:
+            n = min(len(old_pts), len(target_pts))
+            self.all_pts = []
+            for i in range(n):
+                ox, oy, oz = old_pts[i]
+                tx, ty, tz = target_pts[i]
+                self.all_pts.append((
+                    ox + (tx - ox) * ease,
+                    oy + (ty - oy) * ease,
+                    oz + (tz - oz) * ease,
+                ))
+            # 补齐多余的点（直接用旧/新值）
+            if len(old_pts) > n:
+                self.all_pts.extend(old_pts[n:])
+            if len(target_pts) > n:
+                self.all_pts.extend(target_pts[n:])
+        elif target_pts:
+            self.all_pts = list(target_pts)
+        else:
+            self.all_pts = []
+
+        # 节点插值（按索引一一对应）
+        old_nodes = old["nodes"]
+        target_nodes = target["nodes"]
+        old_n = len(old_nodes)
+        target_n = len(target_nodes)
+        n = min(old_n, target_n)
+        self.nodes = []
+        for i in range(n):
+            on, tn = old_nodes[i], target_nodes[i]
+            self.nodes.append({
+                "x": on["x"] + (tn["x"] - on["x"]) * ease,
+                "y": on["y"] + (tn["y"] - on["y"]) * ease,
+                "z": on["z"] + (tn["z"] - on["z"]) * ease,
+                "r": on["r"] + (tn["r"] - on["r"]) * ease,
+                "color": tn["color"],  # 用目标颜色
+                "label": tn["label"],
+                "kind": tn["kind"],
+            })
+        # 旧节点淡出（多余索引）
+        for i in range(n, old_n):
+            c = QColor(old_nodes[i]["color"])
+            c.setAlpha(int(255 * (1.0 - ease)))
+            node = dict(old_nodes[i])
+            node["color"] = c
+            node["r"] *= (1.0 - ease * 0.5)
+            self.nodes.append(node)
+        # 新节点淡入（多余索引）
+        for i in range(n, target_n):
+            c = QColor(target_nodes[i]["color"])
+            c.setAlpha(int(255 * ease))
+            node = dict(target_nodes[i])
+            node["color"] = c
+            node["r"] *= (0.2 + ease * 0.8)
+            self.nodes.append(node)
+
+        # 边：过渡期间混合新旧
+        old_edges = old["edges"]
+        target_edges = target["edges"]
+        self.edges = []
+        # 旧边淡出
+        for a, b, w in old_edges:
+            if not any(a == ta and b == tb for ta, tb, _ in target_edges):
+                self.edges.append((a, b, w * (1.0 - ease)))
+        # 新边淡入
+        for a, b, w in target_edges:
+            self.edges.append((a, b, w * ease))
 
     def set_phase(self, text: str, level: int = -1):
         self.phase_text = text
@@ -243,6 +354,16 @@ class NeuronCanvas(QWidget):
     def _tick(self):
         moved = False
         now = self._now()
+
+        # 拓扑过渡动画推进
+        if self._morph_t < 1.0 and hasattr(self, '_morph_target'):
+            self._morph_t = min(1.0, self._morph_t + 0.025)  # ~1秒
+            self._get_morph_data()
+            moved = True
+            if self._morph_t >= 1.0:
+                self._morph_old = None
+                self._morph_target = None
+
         for p in self.particles:
             p["t"] += 0.018
             if p["t"] > 1.0:
