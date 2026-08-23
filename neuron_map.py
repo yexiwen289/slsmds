@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-神经元高维点阵图 —— 整合意识可视化窗口
+神经元高维点阵图 —— 整合意识可视化窗口（3D 投影版）
 
 功能：
-- 将 6 维认知相空间中的专家/虚拟专家神经元用 PCA 投影到 2D 点阵
+- 将 6 维认知相空间中的专家/虚拟专家神经元用 PCA 投影到 3D
+- 鼠标拖拽旋转视角，滚轮缩放
 - 神经元之间用连线表示认知耦合关系
 - 实时显示推理阶段与信息传递（线段上流动的粒子 + 消息气泡）
 
@@ -25,12 +26,13 @@ import sys
 import json
 import socket
 import argparse
+import math
 
 import numpy as np
 
 from PySide6.QtCore import Qt, QTimer, QPointF
 from PySide6.QtGui import (QPainter, QColor, QPen, QBrush, QFont,
-                           QRadialGradient)
+                           QRadialGradient, QPolygonF)
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QFrame)
 
@@ -63,39 +65,92 @@ LEVEL_NAMES = {
 }
 
 
-def _pca_2d(vectors: np.ndarray) -> np.ndarray:
-    """6 维向量 PCA 投影到 2D（中心化 → 协方差 → 特征分解）"""
+def _pca_3d(vectors: np.ndarray) -> np.ndarray:
+    """6 维向量 PCA 投影到 3D"""
     vectors = np.asarray(vectors, dtype=np.float64)
     if vectors.shape[0] < 2:
-        return np.zeros((vectors.shape[0], 2))
+        return np.zeros((vectors.shape[0], 3))
     mean = vectors.mean(axis=0)
     X = vectors - mean
     cov = np.cov(X.T)
     eigvals, eigvecs = np.linalg.eigh(cov)
-    idx = np.argsort(eigvals)[::-1][:2]
+    idx = np.argsort(eigvals)[::-1][:3]
     proj = X @ eigvecs[:, idx]
-    span = proj.max(axis=0) - proj.min(axis=0)
-    span[span < 1e-9] = 1.0
-    proj = 2.0 * (proj - proj.min(axis=0)) / span - 1.0
+    # 归一化到 [-1, 1]
+    for d in range(3):
+        span = proj[:, d].max() - proj[:, d].min()
+        if span > 1e-9:
+            proj[:, d] = 2.0 * (proj[:, d] - proj[:, d].min()) / span - 1.0
+        else:
+            proj[:, d] = 0.0
     return proj
 
 
+class OrbitCamera:
+    """3D 轨道摄像机：旋转 + 缩放"""
+
+    def __init__(self):
+        self.theta = 0.8          # 水平旋转角（弧度）
+        self.phi = 0.4            # 垂直旋转角（弧度）
+        self.zoom = 1.0           # 缩放
+        self._last_pos = None     # 上次鼠标位置
+
+    def rotate(self, dx: float, dy: float):
+        """鼠标拖拽旋转"""
+        self.theta += dx * 0.008
+        self.phi += dy * 0.008
+        self.phi = max(-math.pi / 2.1, min(math.pi / 2.1, self.phi))
+
+    def zoom_in(self, factor: float = 1.1):
+        self.zoom = max(0.2, min(5.0, self.zoom * factor))
+
+    def zoom_out(self, factor: float = 1.1):
+        self.zoom = max(0.2, min(5.0, self.zoom / factor))
+
+    def project(self, x: float, y: float, z: float):
+        """3D 点 → 2D 屏幕坐标（带透视）"""
+        # 旋转矩阵：绕 Y 轴
+        ct, st = math.cos(self.theta), math.sin(self.theta)
+        # 先绕 Y 轴旋转
+        rx = x * ct + z * st
+        rz = -x * st + z * ct
+        # 再绕 X 轴旋转
+        cp, sp = math.cos(self.phi), math.sin(self.phi)
+        ry = y * cp - rz * sp
+        rz2 = y * sp + rz * cp
+
+        # 透视投影
+        perspective = 3.0
+        scale = self.zoom * perspective / (perspective + rz2)
+        return rx * scale, ry * scale, rz2
+
+    def reset(self):
+        self.theta = 0.8
+        self.phi = 0.4
+        self.zoom = 1.0
+
+
 class NeuronCanvas(QWidget):
-    """神经元点阵画布：绘制云点、节点、连线与信息粒子"""
+    """神经元点阵画布：3D 投影 + 鼠标交互"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumSize(760, 560)
         self.setAutoFillBackground(True)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.OpenHandCursor)
 
         # 数据
-        self.all_pts = []        # 背景云点 (归一化坐标)
-        self.nodes = []          # [{x, y, r, color, label, kind}]
+        self.all_pts = []        # 背景云点 (3D 坐标)
+        self.nodes = []          # [{x, y, z, r, color, label, kind}]
         self.edges = []          # [(i, j, w)]
-        self.particles = []      # [{x1,y1,x2,y2,t,text,color}]
+        self.particles = []      # [{x1,y1,z1, x2,y2,z2, t, text, color}]
         self.highlight = {}      # node_idx -> expiry_ms
         self.phase_text = ""
         self.level = -1
+
+        # 摄像机
+        self.cam = OrbitCamera()
 
         # 动画定时器
         self._timer = QTimer(self)
@@ -111,8 +166,8 @@ class NeuronCanvas(QWidget):
         # 背景云点
         self.all_pts = []
         if all_vectors:
-            proj = _pca_2d(np.array(all_vectors))
-            self.all_pts = [(float(x), float(y)) for x, y in proj]
+            proj = _pca_3d(np.array(all_vectors))
+            self.all_pts = [(float(x), float(y), float(z)) for x, y, z in proj]
 
         # 节点（代表神经元/真实专家）
         self.nodes = []
@@ -120,13 +175,13 @@ class NeuronCanvas(QWidget):
         labels = nodes.get("labels", [])
         kinds = nodes.get("kinds", [])
         if node_vectors:
-            nproj = _pca_2d(np.array(node_vectors))
-            for idx, (x, y) in enumerate(nproj):
+            nproj = _pca_3d(np.array(node_vectors))
+            for idx, (x, y, z) in enumerate(nproj):
                 kind = kinds[idx] if idx < len(kinds) else "rep"
                 color = REAL_COLOR if kind == "real" else REP_COLOR
                 r = 8.0 if kind == "real" else 5.5
                 self.nodes.append({
-                    "x": float(x), "y": float(y), "r": r,
+                    "x": float(x), "y": float(y), "z": float(z), "r": r,
                     "color": color,
                     "label": labels[idx] if idx < len(labels) else f"N{idx}",
                     "kind": kind,
@@ -146,11 +201,9 @@ class NeuronCanvas(QWidget):
 
     def add_signal(self, from_i: int, to_j: int, text: str):
         """在线段上添加一个信息传递粒子"""
-        # 找到端点坐标
         p1 = self._node_pos(from_i)
         p2 = self._node_pos(to_j)
         if p1 is None or p2 is None:
-            # 尝试从边查找
             for a, b, _ in self.edges:
                 if a == from_i and b == to_j:
                     p1 = self._node_pos(a)
@@ -162,11 +215,10 @@ class NeuronCanvas(QWidget):
         if from_i == to_j:
             color = QColor(255, 205, 66)
         self.particles.append({
-            "x1": p1[0], "y1": p1[1],
-            "x2": p2[0], "y2": p2[1],
+            "x1": p1[0], "y1": p1[1], "z1": p1[2],
+            "x2": p2[0], "y2": p2[1], "z2": p2[2],
             "t": 0.0, "text": text, "color": color,
         })
-        # 限制粒子数量，防止堆积
         if len(self.particles) > 40:
             self.particles = self.particles[-40:]
         self.update()
@@ -184,7 +236,8 @@ class NeuronCanvas(QWidget):
 
     def _node_pos(self, idx: int):
         if 0 <= idx < len(self.nodes):
-            return (self.nodes[idx]["x"], self.nodes[idx]["y"])
+            n = self.nodes[idx]
+            return (n["x"], n["y"], n["z"])
         return None
 
     def _tick(self):
@@ -195,24 +248,57 @@ class NeuronCanvas(QWidget):
             if p["t"] > 1.0:
                 p["t"] = 1.0
             moved = True
-        # 清理过期粒子
         self.particles = [p for p in self.particles if p["t"] < 1.0]
-        # 清理高亮
         expired = [k for k, v in self.highlight.items() if v < now]
         for k in expired:
             del self.highlight[k]
         if moved or expired:
             self.update()
 
-    # ── 绘制 ──
-    def _map(self, x, y):
-        """归一化 [-1,1] → 画布坐标"""
+    # ── 3D → 2D 映射 ──
+    def _map(self, x, y, z):
+        """3D 坐标 → 画布 QPointF"""
+        sx, sy, _ = self.cam.project(x, y, z)
         w = self.width() - 120
         h = self.height() - 120
         cx = 60 + w / 2
         cy = 60 + h / 2
-        return QPointF(cx + x * w / 2, cy + y * h / 2)
+        return QPointF(cx + sx * w / 2, cy + sy * h / 2)
 
+    def _map_depth(self, x, y, z):
+        """返回投影后的深度值（用于排序）"""
+        _, _, rz = self.cam.project(x, y, z)
+        return rz
+
+    # ── 鼠标交互 ──
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.cam._last_pos = event.position()
+            self.setCursor(Qt.ClosedHandCursor)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.cam._last_pos = None
+            self.setCursor(Qt.OpenHandCursor)
+
+    def mouseMoveEvent(self, event):
+        if self.cam._last_pos is not None:
+            pos = event.position()
+            dx = pos.x() - self.cam._last_pos.x()
+            dy = pos.y() - self.cam._last_pos.y()
+            self.cam.rotate(dx, dy)
+            self.cam._last_pos = pos
+            self.update()
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta > 0:
+            self.cam.zoom_in()
+        else:
+            self.cam.zoom_out()
+        self.update()
+
+    # ── 绘制 ──
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -226,44 +312,71 @@ class NeuronCanvas(QWidget):
         for gy in range(0, self.height(), step):
             painter.drawLine(0, gy, self.width(), gy)
 
-        # 背景云点
+        # 背景云点（按深度排序，先画远的）
         if self.all_pts:
+            cloud_depth = [(self._map_depth(x, y, z), x, y, z)
+                           for x, y, z in self.all_pts]
+            cloud_depth.sort(key=lambda t: t[0], reverse=True)
             painter.setPen(Qt.NoPen)
-            for x, y in self.all_pts:
-                pt = self._map(x, y)
+            for _, x, y, z in cloud_depth:
+                pt = self._map(x, y, z)
                 painter.setBrush(CLOUD_COLOR)
                 painter.drawEllipse(pt, 1.6, 1.6)
 
-        # 边（先画线）
-        painter.setPen(QPen(EDGE_COLOR, 1))
+        # 按深度排序节点和边
+        node_depths = [
+            (self._map_depth(n["x"], n["y"], n["z"]), i)
+            for i, n in enumerate(self.nodes)
+        ]
+        node_depths.sort(key=lambda t: t[0], reverse=True)
+        depth_order = [i for _, i in node_depths]
+
+        # 边（投影到 2D 后绘制）
+        edge_alpha = max(30, min(90, int(90 * self.cam.zoom)))
+        edge_color = QColor(EDGE_COLOR)
+        edge_color.setAlpha(edge_alpha)
+        painter.setPen(QPen(edge_color, 1))
         for a, b, w in self.edges:
             if a >= len(self.nodes) or b >= len(self.nodes):
                 continue
-            p1 = self._map(self.nodes[a]["x"], self.nodes[a]["y"])
-            p2 = self._map(self.nodes[b]["x"], self.nodes[b]["y"])
+            na, nb = self.nodes[a], self.nodes[b]
+            p1 = self._map(na["x"], na["y"], na["z"])
+            p2 = self._map(nb["x"], nb["y"], nb["z"])
+            # 根据权重控制线条透明度
+            line_alpha = max(40, min(180, int(80 + w * 100)))
+            line_color = QColor(edge_color)
+            line_color.setAlpha(line_alpha)
+            painter.setPen(QPen(line_color, max(0.5, w * 2.5)))
             painter.drawLine(p1, p2)
 
-        # 节点（后画点）
-        for idx, node in enumerate(self.nodes):
-            pt = self._map(node["x"], node["y"])
+        # 节点（按深度从远到近绘制）
+        for idx in depth_order:
+            node = self.nodes[idx]
+            pt = self._map(node["x"], node["y"], node["z"])
+            depth = node_depths[node_depths.index((self._map_depth(
+                node["x"], node["y"], node["z"]), idx))][0]
             is_hl = idx in self.highlight
+
+            # 深度缩放：远处的节点小一点
+            depth_scale = max(0.5, 1.0 - depth * 0.15)
+
             # 高亮光晕
             if is_hl:
-                glow = QRadialGradient(pt, 26)
+                glow = QRadialGradient(pt, 26 * depth_scale)
                 c = QColor(node["color"])
                 c.setAlpha(120)
                 glow.setColorAt(0, c)
                 glow.setColorAt(1, QColor(0, 0, 0, 0))
                 painter.setBrush(glow)
                 painter.setPen(Qt.NoPen)
-                painter.drawEllipse(pt, 26, 26)
+                painter.drawEllipse(pt, 26 * depth_scale, 26 * depth_scale)
 
-            r = node["r"] * (1.4 if is_hl else 1.0)
+            r = node["r"] * depth_scale * (1.4 if is_hl else 1.0)
             painter.setBrush(QBrush(node["color"]))
             painter.setPen(QPen(QColor(0, 0, 0, 80), 1))
             painter.drawEllipse(pt, r, r)
 
-            # 标签（仅真实专家 + 代表）
+            # 标签
             if node["kind"] in ("real",) or is_hl:
                 painter.setPen(TEXT_COLOR)
                 font = painter.font()
@@ -282,8 +395,9 @@ class NeuronCanvas(QWidget):
             t = p["t"]
             x = p["x1"] + (p["x2"] - p["x1"]) * t
             y = p["y1"] + (p["y2"] - p["y1"]) * t
-            pt = self._map(x, y)
-            # 粒子本体（光晕）
+            z = p["z1"] + (p["z2"] - p["z1"]) * t
+            pt = self._map(x, y, z)
+            # 粒子光晕
             glow = QRadialGradient(pt, 16)
             c = p["color"]
             c2 = QColor(c)
@@ -304,7 +418,6 @@ class NeuronCanvas(QWidget):
                 th = fm.height() + 6
                 bx = pt.x() + 10
                 by = pt.y() - th - 4
-                # 限制在画布内
                 bx = min(bx, self.width() - tw - 6)
                 by = max(by, 4)
                 bubble = QColor(24, 30, 48, 230)
@@ -350,6 +463,14 @@ class NeuronCanvas(QWidget):
                 badge
             )
 
+        # 左下角操作提示
+        painter.setPen(DIM_COLOR)
+        font = painter.font()
+        font.setPointSize(8)
+        painter.setFont(font)
+        painter.drawText(QPointF(70, self.height() - 6),
+                         "拖拽旋转 · 滚轮缩放")
+
         painter.end()
 
 
@@ -369,7 +490,7 @@ class NeuronMapWindow(QMainWindow):
 
         # 顶部信息条
         top = QHBoxLayout()
-        title = QLabel("🧠 神经元高维点阵图")
+        title = QLabel("🧠 神经元高维点阵图 (3D)")
         title.setStyleSheet(
             "font-size: 15px; font-weight: bold; color: #86c4ff; background: #161a28;"
             "padding: 8px 14px; border-radius: 8px; border: 1px solid #2a3050;"
@@ -462,7 +583,7 @@ class NeuronMapWindow(QMainWindow):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="神经元高维点阵图")
+    parser = argparse.ArgumentParser(description="神经元高维点阵图 (3D)")
     parser.add_argument("--port", type=int, default=52000, help="UDP 监听端口")
     args = parser.parse_args()
 
