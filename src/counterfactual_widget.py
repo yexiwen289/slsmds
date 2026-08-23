@@ -781,7 +781,7 @@ class CounterfactualDialog(QDialog):
             temporal_group = QGroupBox("⏳ 时间耦合记忆（反事实）")
             temporal_layout = QVBoxLayout(temporal_group)
 
-            temporal_info = QLabel("调整历史耦合强度，模拟"如果历史不同"的跨轮次推演")
+            temporal_info = QLabel('调整历史耦合强度，模拟"如果历史不同"的跨轮次推演')
             temporal_info.setStyleSheet("color: #888888; font-size: 11px;")
             temporal_info.setWordWrap(True)
             temporal_layout.addWidget(temporal_info)
