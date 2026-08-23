@@ -10,8 +10,8 @@ AI观察员元评论席 —— 独立于讨论的元观察员
 
 import json
 from typing import List, Dict, Optional
-from llm_client import LLMClient
-from prompts_b64 import get_prompt as _get_b64_prompt
+from .llm_client import LLMClient
+from .prompts_b64 import get_prompt as _get_b64_prompt
 
 
 class Observer:

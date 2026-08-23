@@ -4,12 +4,18 @@ LLM API 客户端 —— 无提供商限制，支持自定义接口和回退
 
 import time
 from openai import OpenAI
-from prompts_b64 import _get_b64_prompt
+try:
+    from .prompts_b64 import _get_b64_prompt
+except ImportError:
+    from prompts_b64 import _get_b64_prompt
 
 # ── 默认配置（Base64 编码混淆，受身份验证保护）──
 def _get_default_config() -> dict:
     """获取默认配置，未认证用户返回空配置"""
-    import auth
+    try:
+        from . import auth
+    except ImportError:
+        import auth
     if not auth.AUTHENTICATED:
         return {
             "base_url": "",

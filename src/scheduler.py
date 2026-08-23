@@ -11,7 +11,7 @@
 
 import math
 from typing import List, Dict, Optional, Tuple
-from player import Player
+from .player import Player
 
 
 # 中文专业领域关键词库（用于计算专家相似度）

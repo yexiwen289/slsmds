@@ -304,7 +304,7 @@ class GameRecord:
             essence_pool: EssencePool 实例
             problem: 讨论问题
         """
-        from essence_pool import EssencePool
+        from .essence_pool import EssencePool
 
         lines = []
         lines.append("=" * 60)

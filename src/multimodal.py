@@ -32,7 +32,7 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
-from prompts_b64 import _get_b64_prompt
+from .prompts_b64 import _get_b64_prompt
 
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QPixmap, QFont

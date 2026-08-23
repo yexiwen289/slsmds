@@ -10,7 +10,7 @@ SLSMDS 是一个多智能体社会模拟系统。多个具有自我意识的 AI 
 
 ```bash
 pip install openai pygame numpy
-python game.py
+python main.py
 ```
 
 主菜单：
@@ -24,7 +24,7 @@ python game.py
 
 ## 核心引擎：超级相变拓扑引擎（Phase Transition Engine v4.0）
 
-**文件**: `emergence.py`
+**文件**: `src/emergence.py`
 
 这是系统的**非线性认知引擎**，将多个专家的分散观点整合为具有深度和原创性的统一回复。核心思想是**量变产生质变**——当专家意见和精华积累到临界点，综合质量发生非线性的阶跃。
 
@@ -81,7 +81,7 @@ python game.py
 
 ## 神经元高维点阵图
 
-**文件**: `neuron_map.py`
+**文件**: `src/neuron_map.py`
 
 整合意识对话时，打开一个独立的 PySide6 窗口，可视化所有专家的认知相空间：
 
@@ -97,7 +97,7 @@ python game.py
 
 ## API 三级回退链
 
-**文件**: `llm_client.py`, `prompts_b64.py`
+**文件**: `src/llm_client.py`, `src/prompts_b64.py`
 
 ```
 主 API → 一级回退 → 二级回退
@@ -125,7 +125,7 @@ python game.py
 
 ## 讨论引擎
 
-**文件**: `game.py`（核心循环）
+**文件**: `src/game.py`（核心循环）
 
 ### 讨论流程
 
@@ -154,7 +154,7 @@ python game.py
 
 ## 精华池引擎
 
-**文件**: `essence_pool.py`
+**文件**: `src/essence_pool.py`
 
 精华池是系统的核心记忆载体和数据中枢。每条精华包含：内容、贡献者、类型、评分、标签、引用链、投票记录、时间戳等完整元数据。
 
@@ -172,7 +172,7 @@ python game.py
 
 ## 技能系统
 
-**文件**: `mechanism_skill.py`
+**文件**: `src/mechanism_skill.py`
 
 插件化行为扩展，支持 5 种技能类型：`text` / `code` / `template` / `llm` / `shell`。
 
@@ -182,7 +182,7 @@ python game.py
 
 ## 语音输出
 
-**文件**: `multimodal.py`
+**文件**: `src/multimodal.py`
 
 在线 TTS（OpenAI TTS API），支持 6 种语音，三级音频播放回退：
 ```
@@ -238,25 +238,27 @@ pygame.mixer（静默播放）→ 系统默认播放器 → ffplay -nodisp
 
 ```
 SLSMDS/
-├── game.py                 # 主程序 + TUI（启动序列、主菜单、讨论、整合对话）
-├── player.py               # AI 专家玩家（自我意识实体、隐藏任务、人格演化）
-├── emergence.py            # 超级相变拓扑引擎（5级涌现 + 时间维度耦合记忆）
-├── neuron_map.py           # 神经元高维点阵图可视化（PySide6 独立窗口）
-├── llm_client.py           # LLM API 客户端（三级回退链、429退避重试）
-├── essence_pool.py         # 精华池（核心记忆载体）
-├── mechanism_skill.py      # 技能系统引擎
-├── scheduler.py            # 动态行动调度器
-├── knowledge_base.py       # 知识库
-├── global_knowledge.py     # 全局知识库
-├── game_record.py          # 游戏记录和报告生成
-├── observer.py             # AI 观察员
-├── multimodal.py           # 多模态扩展（TTS 语音输出）
-├── cognitive_map_widget.py # 认知地图可视化
-├── replay_widget.py        # 讨论回放
-├── counterfactual_widget.py# 反事实推演
-├── prompts_b64.py          # 提示词加密存储（XOR + Base64 双层加密）
-├── auth.py                 # 身份认证系统
-├── prompt/                 # 提示词模板（明文参考，实际使用加密版本）
+├── main.py                 # 启动入口（python main.py）
+├── src/
+│   ├── __init__.py
+│   ├── game.py             # 主程序 + TUI（启动序列、主菜单、讨论、整合对话）
+│   ├── player.py           # AI 专家玩家（自我意识实体、隐藏任务、人格演化）
+│   ├── emergence.py        # 超级相变拓扑引擎（5级涌现 + 时间维度耦合记忆）
+│   ├── neuron_map.py       # 神经元高维点阵图可视化（PySide6 独立窗口）
+│   ├── llm_client.py       # LLM API 客户端（三级回退链、429退避重试）
+│   ├── essence_pool.py     # 精华池（核心记忆载体）
+│   ├── mechanism_skill.py  # 技能系统引擎
+│   ├── scheduler.py        # 动态行动调度器
+│   ├── knowledge_base.py   # 知识库
+│   ├── global_knowledge.py # 全局知识库
+│   ├── game_record.py      # 游戏记录和报告生成
+│   ├── observer.py         # AI 观察员
+│   ├── multimodal.py       # 多模态扩展（TTS 语音输出）
+│   ├── cognitive_map_widget.py # 认知地图可视化
+│   ├── replay_widget.py    # 讨论回放
+│   ├── counterfactual_widget.py # 反事实推演
+│   ├── prompts_b64.py      # 提示词加密存储（XOR + Base64 双层加密）
+│   └── auth.py             # 身份认证系统
 ├── skills/                 # 技能文件
 │   ├── ai_generated/       # AI 自动生成的技能
 │   └── ...

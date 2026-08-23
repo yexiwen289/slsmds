@@ -39,7 +39,7 @@ import math
 import random
 import numpy as np
 from collections import Counter
-from prompts_b64 import _get_b64_prompt
+from .prompts_b64 import _get_b64_prompt
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1520,6 +1520,21 @@ class VirtualExpertGenerator:
         return self.real + self.virtual_discussions
 
     @property
+    def virtual_vectors(self) -> np.ndarray:
+        """
+        返回所有虚拟专家的相空间向量矩阵 (M, 6)。
+
+        用于神经认知反馈闭环中的距离计算与 Hebbian 更新。
+        """
+        vecs = []
+        for d in self.virtual_discussions:
+            if '_vector' in d and isinstance(d['_vector'], np.ndarray):
+                vecs.append(d['_vector'])
+            else:
+                vecs.append(OpinionPhaseVector(d.get('speech', ''), d.get('player_name', '')).vector)
+        return np.array(vecs, dtype=np.float64) if vecs else np.empty((0, 6))
+
+    @property
     def amplification_ratio(self) -> float:
         """放大比例：虚拟专家数 / 真实专家数"""
         total = self.n_real + len(self.virtual_discussions)
@@ -1564,6 +1579,9 @@ class TemporalCouplingMemory:
         self.topology_history = []
         # 连接质量评分（基于历史交互的加权评分）
         self.connection_quality = np.zeros((n_experts_max, n_experts_max))
+        # ── 虚拟专家权重矩阵 (n_max × 6)：存储虚拟专家在相空间中的位置 ──
+        # 用于神经认知反馈闭环的 Hebbian 累积更新
+        self.virtual_weight_matrix = np.zeros((n_experts_max, 6))
 
     def update(self, phase_vectors: list, round_count: int):
         """
@@ -1723,6 +1741,31 @@ class TemporalCouplingMemory:
 
         return f"{density_dir} | {quality_dir}"
 
+    # ────────────────────────────────────────────────────────────
+    # 虚拟专家权重矩阵（神经认知反馈闭环支持）
+    # ────────────────────────────────────────────────────────────
+
+    def update_virtual_weights(self, virtual_vectors: np.ndarray):
+        """
+        存储更新后的虚拟专家相空间向量。
+
+        参数:
+            virtual_vectors: (M, 6) numpy array，虚拟专家在相空间中的位置
+        """
+        n = min(len(virtual_vectors), self.n_max)
+        self.virtual_weight_matrix[:n] = virtual_vectors[:n]
+
+    def get_virtual_weights(self, n: int = None) -> np.ndarray:
+        """
+        获取存储的虚拟专家向量矩阵。
+
+        参数:
+            n: 返回前 n 个虚拟专家向量（默认全部）
+        """
+        if n is None:
+            n = self.n_max
+        return self.virtual_weight_matrix[:n].copy()
+
     def to_dict(self) -> dict:
         """
         序列化时间记忆为可 JSON 序列化的字典。
@@ -1740,6 +1783,7 @@ class TemporalCouplingMemory:
             "connection_age": self.connection_age.tolist(),
             "connection_quality": self.connection_quality.tolist(),
             "topology_history": self.topology_history,
+            "virtual_weight_matrix": self.virtual_weight_matrix.tolist(),
         }
 
     @classmethod
@@ -1757,6 +1801,14 @@ class TemporalCouplingMemory:
         tm.connection_age = np.array(data.get("connection_age", [[0]]), dtype=int)
         tm.connection_quality = np.array(data.get("connection_quality", [[0]]))
         tm.topology_history = data.get("topology_history", [])
+        vwm = data.get("virtual_weight_matrix", None)
+        if vwm:
+            arr = np.array(vwm)
+            # 确保矩阵大小与 n_max 一致，截断或填充
+            if arr.shape[0] <= tm.n_max:
+                tm.virtual_weight_matrix[:arr.shape[0]] = arr
+            else:
+                tm.virtual_weight_matrix = arr[:tm.n_max]
         return tm
 
 
@@ -2111,7 +2163,7 @@ class PhaseTransitionEngine:
         这模拟了"认知的螺旋上升"——每个层次的涌现
         都成为下一层次涌现的输入。
         """
-        from prompts_b64 import _get_b64_prompt
+        from .prompts_b64 import _get_b64_prompt
 
         current_level = self.compute_emergence_level()
         max_level = current_level
@@ -2200,6 +2252,127 @@ class PhaseTransitionEngine:
         self.compute_emergence_level()
         return self._metrics_cache or {}
 
+    # ════════════════════════════════════════════════════════════
+    # 神经认知反馈闭环（Neural Cognitive Feedback Loop）
+    # ════════════════════════════════════════════════════════════
+
+    def hebbian_update(self, real_vectors: np.ndarray,
+                        virtual_vectors: np.ndarray,
+                        learning_rate: float = 0.05) -> np.ndarray:
+        """
+        Hebbian 更新虚拟专家向量（神经认知反馈闭环 Step 3）。
+
+        对每个真实发言向量 p_real，计算其与所有虚拟专家向量的距离，
+        通过 sigmoid 激活，然后对激活强度 > 0.3 的虚拟专家进行 Hebbian 更新。
+
+        参数:
+            real_vectors: (N, 6) numpy array，真实专家相空间向量
+            virtual_vectors: (M, 6) numpy array，虚拟专家相空间向量
+            learning_rate: Hebbian 学习率（默认 0.05，防止漂移过快）
+
+        返回:
+            updated_vectors: (M, 6) 更新后的虚拟专家向量矩阵
+        """
+        if len(virtual_vectors) == 0 or len(real_vectors) == 0:
+            return virtual_vectors
+
+        D_max = 2.0
+        updated = virtual_vectors.copy()
+
+        # 对每个真实发言向量计算激活并更新
+        for p_real in real_vectors:
+            # Step 2: 计算距离与 sigmoid 激活
+            distances = np.linalg.norm(updated - p_real, axis=1)  # (M,)
+            alpha = 1.0 / (1.0 + np.exp(3.0 * (distances / D_max - 0.5)))  # (M,)
+
+            # Step 3: Hebbian 更新（只对激活的虚拟专家）
+            active_mask = alpha > 0.3
+            if np.any(active_mask):
+                # ΔW_j = learning_rate * alpha_j * (p_real - W_j)
+                delta = learning_rate * alpha[active_mask, np.newaxis] * (p_real - updated[active_mask])
+                updated[active_mask] += delta
+                # 重新归一化到 [0, 1] 区间（保持相空间边界）
+                updated[active_mask] = np.clip(updated[active_mask], 0.0, 1.0)
+
+        # 存储到 temporal_memory
+        if self.temporal_memory is not None:
+            self.temporal_memory.update_virtual_weights(updated)
+
+        return updated
+
+    def compute_collective_response(self, real_vectors: np.ndarray,
+                                      virtual_vectors: np.ndarray,
+                                      mix_coefficient: float = 0.3) -> np.ndarray:
+        """
+        计算虚拟专家网络的集体认知响应（封装 Step 2-4）。
+
+        流程:
+          Step 2: 真实发言 → 激活虚拟专家（距离计算 + sigmoid 激活）
+          Step 3: Hebbian 调参（更新虚拟专家在相空间中的位置）
+          Step 4: 加权响应生成与汇总（注意力机制 → P_final）
+
+        参数:
+            real_vectors: (N, 6) numpy array，真实专家相空间向量
+            virtual_vectors: (M, 6) numpy array，虚拟专家相空间向量
+            mix_coefficient: 混合系数（默认 0.3）
+
+        返回:
+            P_final: (6,) 六维集体认知响应向量
+        """
+        if len(virtual_vectors) == 0 or len(real_vectors) == 0:
+            return np.zeros(6)
+
+        # Step 2+3: Hebbian 更新
+        updated_virtual = self.hebbian_update(real_vectors, virtual_vectors)
+
+        N = len(real_vectors)
+        M = len(updated_virtual)
+        D_max = 2.0
+
+        # Step 2 (续): 对每个真实发言计算激活向量
+        all_alphas = np.zeros((N, M))
+        for i, p_real in enumerate(real_vectors):
+            distances = np.linalg.norm(updated_virtual - p_real, axis=1)
+            all_alphas[i] = 1.0 / (1.0 + np.exp(3.0 * (distances / D_max - 0.5)))
+
+        # 多个真实发言时，按时序衰减加权（越近的发言权重越高）
+        if N > 1:
+            time_weights = np.array([0.5 + 0.5 * (i / (N - 1)) for i in range(N)])
+            time_weights = time_weights / time_weights.sum()
+            alpha = np.average(all_alphas, axis=0, weights=time_weights)
+        else:
+            alpha = all_alphas[0]
+
+        # 真实发言的平均向量作为"集体认知中心"
+        p_real_avg = np.mean(real_vectors, axis=0)
+
+        # Step 4: 加权响应生成
+        # R_j = W_j + alpha_j * (p_real_avg - W_j) * mix_coefficient
+        R = np.zeros_like(updated_virtual)
+        for j in range(M):
+            R[j] = updated_virtual[j] + alpha[j] * (p_real_avg - updated_virtual[j]) * mix_coefficient
+
+        # 注意力权重：beta_j = alpha_j * exp(similarity * 2) / sum
+        p_norm = np.linalg.norm(p_real_avg)
+        v_norms = np.linalg.norm(updated_virtual, axis=1)
+        similarities = np.zeros(M)
+        for j in range(M):
+            if p_norm > 1e-10 and v_norms[j] > 1e-10:
+                similarities[j] = np.dot(p_real_avg, updated_virtual[j]) / (p_norm * v_norms[j])
+
+        beta_raw = alpha * np.exp(similarities * 2)
+        beta_sum = np.sum(beta_raw)
+        if beta_sum > 1e-10:
+            beta = beta_raw / beta_sum
+        else:
+            beta = np.ones(M) / M
+
+        # 最终汇总：P_final = Σ_j beta_j * R_j
+        P_final = np.sum(beta[:, np.newaxis] * R, axis=0)
+        P_final = np.clip(P_final, 0.0, 1.0)
+
+        return P_final
+
 
 # ═══════════════════════════════════════════════════════════════
 # 8. 旧版兼容函数（保留原有 API 签名）
@@ -2268,31 +2441,21 @@ def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
             nodes_labels.append(f'V{idx}')
             nodes_kinds.append('rep')
 
-    # ── 基于相空间余弦相似度建立拓扑连接 ──
-    # 所有节点（真实+虚拟）统一计算相似度矩阵
-    import numpy as np
-    vecs = np.array(nodes_vectors, dtype=np.float64)
-    norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-    norms[norms < 1e-12] = 1.0
-    sim = (vecs @ vecs.T) / (norms @ norms.T)  # cosine similarity
-    np.fill_diagonal(sim, 0.0)  # 自连接归零
-
-    # 每个节点保留 top-K 最强连接
+    # ── 连线：真实专家之间 + 真实专家到采样神经元 ──
+    # 真实专家之间全连接，每个真实专家再连到 2 个虚拟代表
     n_total = len(nodes_vectors)
-    K = min(5, n_total - 1) if n_total > 1 else 0
     edges = []
-    seen = set()
-    for i in range(n_total):
-        if K <= 0:
-            break
-        top_k = np.argsort(sim[i])[::-1][:K]
-        for j in top_k:
-            if sim[i, j] > 0.15:  # 相似度阈值
-                key = (min(i, j), max(i, j))
-                if key not in seen:
-                    seen.add(key)
-                    w = max(0.3, min(1.0, float(sim[i, j])))
-                    edges.append([i, j, w])
+    if n_real >= 2:
+        for i in range(n_real):
+            for j in range(i + 1, n_real):
+                edges.append([i, j, 1.0])
+    # 每个真实专家连到 2 个采样神经元
+    n_rep = max(0, n_total - n_real)
+    for i in range(min(n_real, 4)):
+        for k in range(2):
+            if n_rep > 0:
+                j = n_real + (i * 2 + k) % n_rep
+                edges.append([i, j, 0.7])
 
     # 云点下采样（UDP 数据报限 64KB，最多传 250 个背景点）
     _cloud = []
@@ -2300,7 +2463,6 @@ def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
         step = max(1, len(all_vectors) // 250)
         _cloud = [v.vector.tolist() for v in all_vectors[::step]][:250]
 
-    print(f"[神经图] 推送: {n_real} 真实 + {n_total - n_real} 虚拟代表 = {n_total} 节点, {len(edges)} 边, {len(_cloud)} 云点")
     event_callback({
         "type": "init",
         "all_vectors": _cloud,
@@ -2582,6 +2744,59 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         "nodes": list(range(min(8, len(round_discussions)))),
     })
 
+    # ── 神经认知反馈闭环：真实发言 → 相空间映射 → 虚拟网络调参 → 加权输出 ──
+    # Step 1: 提取真实专家的六维向量
+    real_vectors = np.array([
+        OpinionPhaseVector(d.get('speech', ''), d.get('player_name', '')).vector
+        for d in round_discussions
+    ])
+    # Step 2-4: 通过虚拟专家网络计算集体认知响应
+    P_final = np.zeros(6)
+    if use_amplification and hasattr(generator, 'virtual_vectors'):
+        virt_vecs = generator.virtual_vectors
+        if len(virt_vecs) > 0:
+            try:
+                P_final = engine.compute_collective_response(real_vectors, virt_vecs)
+            except Exception:
+                # fallback: 使用真实发言的平均向量
+                P_final = np.mean(real_vectors, axis=0) if len(real_vectors) > 0 else np.zeros(6)
+    else:
+        P_final = np.mean(real_vectors, axis=0) if len(real_vectors) > 0 else np.zeros(6)
+
+    # Step 5: 将六维向量转为自然语言认知方向描述
+    dim_names = ['逻辑一致性', '新颖性', '认知深度', '分歧度', '具体性', '情感强度']
+    dim_descriptions = [f"{dim_names[i]}: {P_final[i]:.2f}" for i in range(6)]
+    cognitive_orientation = (
+        f"\n\n【当前认知重心】\n"
+        f"基于虚拟专家网络的集体调参，当前认知重心偏向：\n"
+        + ", ".join(dim_descriptions) +
+        f"\n请在上述认知方向上生成回复，确保回复与该方向一致。"
+    )
+    # 调试输出
+    print(f"[认知反馈] P_final = [{', '.join(f'{v:.3f}' for v in P_final)}]")
+
+    # ── 推送更新后的虚拟专家拓扑到神经元点阵图 ──
+    if use_amplification and hasattr(generator, 'virtual_vectors'):
+        try:
+            virt_vecs = generator.virtual_vectors
+            if len(virt_vecs) > 0:
+                # 获取更新后的虚拟专家向量（从 temporal_memory 或 engine）
+                updated_virt = virt_vecs.copy()
+                if temporal_memory is not None:
+                    stored = temporal_memory.get_virtual_weights(len(virt_vecs))
+                    if np.any(stored):
+                        updated_virt = stored
+                # 构建虚拟专家云点（用于可视化更新）
+                _cloud = [v.tolist() for v in updated_virt[::max(1, len(updated_virt)//250)]][:250]
+                # 计算 P_final 在相空间中的位置作为"认知重心"节点
+                _emit({
+                    "type": "cognitive_center",
+                    "vector": P_final.tolist(),
+                    "all_vectors": _cloud,
+                })
+        except Exception:
+            pass
+
     # 精华池摘要
     essence_summary = "（空）"
     if essence_pool and hasattr(essence_pool, 'items') and essence_pool.items:
@@ -2599,6 +2814,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             f"内部讨论记录:\n{discussion_text}\n\n"
             f"请直接给出你的统一回复（一段话，不要分段太多，不要提及子模块或讨论过程，就是你自己在回答）。"
             f"\n\n请简短回答，控制在200字以内，精炼有力。"
+            f"{cognitive_orientation}"
         )
         try:
             response, _ = llm_client.chat(
@@ -2635,6 +2851,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             problem, neuron_experts, critique_result, essence_summary
         )
         synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
+        synth_prompt += cognitive_orientation
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],
@@ -2670,6 +2887,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             problem, neuron_experts, critique_result, essence_summary
         )
         synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
+        synth_prompt += cognitive_orientation
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],
@@ -2705,6 +2923,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             problem, neuron_experts, critique_result, essence_summary, metrics
         )
         synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
+        synth_prompt += cognitive_orientation
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],
@@ -2765,6 +2984,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             problem, neuron_experts, combined_critique, essence_summary, metrics
         )
         synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
+        synth_prompt += cognitive_orientation
         try:
             response, _ = llm_client.chat(
                 [{"role": "user", "content": synth_prompt}],

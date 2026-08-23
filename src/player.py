@@ -11,9 +11,9 @@ import random
 import json
 import re
 from typing import List, Dict, Optional
-from llm_client import LLMClient
+from .llm_client import LLMClient
 
-from prompts_b64 import get_prompt as _get_b64_prompt
+from .prompts_b64 import get_prompt as _get_b64_prompt
 
 
 class Player:

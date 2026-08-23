@@ -19,6 +19,7 @@
     phase     {"type":"phase","text":"...","level":N}
     signal    {"type":"signal","from":i,"to":j,"text":"..."}
     highlight {"type":"highlight","nodes":[i,..]}
+    cognitive_center  {"type":"cognitive_center","vector":[6d],"all_vectors":[[..6d]..]}
     exit      {"type":"exit"}
 """
 
@@ -144,6 +145,7 @@ class NeuronCanvas(QWidget):
         self.all_pts = []        # 背景云点 (3D 坐标)
         self.nodes = []          # [{x, y, z, r, color, label, kind}]
         self.edges = []          # [(i, j, w)]
+        self.cloud_edges = []    # 云点之间的连接 [(i, j)]
         self.particles = []      # [{x1,y1,z1, x2,y2,z2, t, text, color}]
         self.highlight = {}      # node_idx -> expiry_ms
         self.phase_text = ""
@@ -159,9 +161,6 @@ class NeuronCanvas(QWidget):
 
         # ── 持续信息流动（合成/推理阶段） ──
         self._active_phase = False     # 是否处于推理/输出阶段
-        self._edge_wave_phase = 0.0    # 边缘波相位（全局）
-        self._ambient_counter = 0      # 环境粒子生成计数器
-        self._pulse_phase = 0.0        # 节点脉冲相位
         self._signal_buffer = []        # 信号缓冲区（持续重放）
         self._signal_idx = 0            # 当前播放的信号索引
 
@@ -209,11 +208,27 @@ class NeuronCanvas(QWidget):
 
         new_edges = [(int(a), int(b), float(w)) for a, b, w in edges]
 
+        # 计算云点之间的连接（灰色小点之间的网络，k近邻法）
+        new_cloud_edges = []
+        if len(new_pts) >= 2:
+            pts = np.array(new_pts, dtype=np.float64)
+            seen = set()
+            for i in range(len(pts)):
+                dists = np.sum((pts - pts[i]) ** 2, axis=1)
+                dists[i] = np.inf
+                nearest = np.argsort(dists)[:2]  # 最近2个邻居
+                for j in nearest:
+                    key = (min(i, j), max(i, j))
+                    if key not in seen:
+                        seen.add(key)
+                        new_cloud_edges.append((i, j))
+
         # 如果当前没有旧状态（首次加载），直接设置
         if not self.nodes:
             self.all_pts = new_pts
             self.nodes = new_nodes
             self.edges = new_edges
+            self.cloud_edges = new_cloud_edges
             self._morph_t = 1.0
             self._morph_old = None
         else:
@@ -222,11 +237,68 @@ class NeuronCanvas(QWidget):
                 "all_pts": new_pts,
                 "nodes": new_nodes,
                 "edges": new_edges,
+                "cloud_edges": new_cloud_edges,
             }
             self._morph_t = 0.0
 
         self.particles.clear()
         self.highlight.clear()
+        self.update()
+
+    def update_cognitive_center(self, payload: dict):
+        """
+        更新虚拟专家云点和认知重心（神经认知反馈闭环的可视化）。
+
+        来自 emergence.py 合成的 cognitive_center 事件：
+        {
+            "type": "cognitive_center",
+            "vector": [6d] P_final 认知重心向量,
+            "all_vectors": [[..6d]..] 更新后的虚拟专家云点
+        }
+        """
+        vector = payload.get("vector", None)
+        all_vectors = payload.get("all_vectors", [])
+        if vector:
+            # 将认知重心向量作为"发光节点"显示
+            vec3d = _pca_3d(np.array([vector]))[0]
+            cx, cy, cz = float(vec3d[0]), float(vec3d[1]), float(vec3d[2])
+            # 认知重心节点（高亮金色）
+            center_node = {
+                "x": cx, "y": cy, "z": cz, "r": 12.0,
+                "color": (255, 215, 0),  # 金色
+                "label": "认知重心", "kind": "center",
+            }
+            # 替换或追加认知重心节点
+            for i, n in enumerate(self.nodes):
+                if n.get("kind") == "center":
+                    self.nodes[i] = center_node
+                    break
+            else:
+                self.nodes.append(center_node)
+
+        if all_vectors:
+            # 更新云点
+            proj = _pca_3d(np.array(all_vectors))
+            new_pts = [(float(x), float(y), float(z)) for x, y, z in proj]
+            # 保留旧云点做平滑过渡
+            old_pts = list(self.all_pts)
+            self.all_pts = new_pts
+            # 更新云点之间的连接
+            if len(new_pts) >= 2:
+                pts = np.array(new_pts, dtype=np.float64)
+                seen = set()
+                new_cloud_edges = []
+                for i in range(len(pts)):
+                    dists = np.sum((pts - pts[i]) ** 2, axis=1)
+                    dists[i] = np.inf
+                    nearest = np.argsort(dists)[:2]
+                    for j in nearest:
+                        key = (min(i, j), max(i, j))
+                        if key not in seen:
+                            seen.add(key)
+                            new_cloud_edges.append((i, j))
+                self.cloud_edges = new_cloud_edges
+
         self.update()
 
     # ── 获取当前过渡插值数据 ──
@@ -313,6 +385,9 @@ class NeuronCanvas(QWidget):
         for a, b, w in target_edges:
             self.edges.append((a, b, w * ease))
 
+        # 云点连接：过渡期间直接用目标值（点数不变，索引一一对应）
+        self.cloud_edges = target.get("cloud_edges", [])
+
     def set_phase(self, text: str, level: int = -1):
         self.phase_text = text
         self.level = level
@@ -395,17 +470,12 @@ class NeuronCanvas(QWidget):
                 self._morph_old = None
                 self._morph_target = None
 
-        # ── 持续信息流动（合成/推理阶段） ──
+        # ── 信息粒子持续流动（合成/推理阶段） ──
         if self._active_phase and self.edges:
-            # 推进全局波相位
-            self._edge_wave_phase = (self._edge_wave_phase + 0.04) % (math.pi * 2)
-            self._pulse_phase = (self._pulse_phase + 0.05) % (math.pi * 2)
-            self._ambient_counter += 1
-
-            # 每 2 帧从信号缓冲区取一条真实信号发射（带自动回复）
-            if self._signal_buffer and self._ambient_counter % 2 == 0:
-                sig = self._signal_buffer[self._signal_idx % len(self._signal_buffer)]
-                self._signal_idx = (self._signal_idx + 1) % len(self._signal_buffer)
+            # 从信号缓冲区逐条发射信号，播完即止（不循环）
+            if self._signal_buffer and self._signal_idx < len(self._signal_buffer):
+                sig = self._signal_buffer[self._signal_idx]
+                self._signal_idx += 1
                 self.add_signal(
                     sig.get("from", 0), sig.get("to", 0),
                     sig.get("text", "")
@@ -489,6 +559,17 @@ class NeuronCanvas(QWidget):
         for gy in range(0, self.height(), step):
             painter.drawLine(0, gy, self.width(), gy)
 
+        # 背景云点之间的连接线（灰色点网络）
+        if self.cloud_edges and self.all_pts:
+            painter.setPen(QPen(QColor(55, 65, 95, 35), 0.5))
+            for i, j in self.cloud_edges:
+                if i < len(self.all_pts) and j < len(self.all_pts):
+                    x1, y1, z1 = self.all_pts[i]
+                    x2, y2, z2 = self.all_pts[j]
+                    p1 = self._map(x1, y1, z1)
+                    p2 = self._map(x2, y2, z2)
+                    painter.drawLine(p1, p2)
+
         # 背景云点（按深度排序，先画远的）
         if self.all_pts:
             cloud_depth = [(self._map_depth(x, y, z), x, y, z)
@@ -514,9 +595,6 @@ class NeuronCanvas(QWidget):
         edge_color.setAlpha(edge_alpha)
         painter.setPen(QPen(edge_color, 1))
 
-        # 边波参数（活跃推理时产生流动光效）
-        wave_phase = self._edge_wave_phase if self._active_phase else -1
-
         for a, b, w in self.edges:
             if a >= len(self.nodes) or b >= len(self.nodes):
                 continue
@@ -531,32 +609,7 @@ class NeuronCanvas(QWidget):
             painter.setPen(QPen(line_color, pen_width))
             painter.drawLine(p1, p2)
 
-            # 边缘波：流动光点（沿线段移动）
-            if wave_phase >= 0:
-                # 每条边有一个相位偏移，使光点在不同位置错开
-                edge_hash = (a * 7 + b * 13) % 100 / 100.0
-                wave_pos = (wave_phase / (math.pi * 2) + edge_hash) % 1.0
-                wx = p1.x() + (p2.x() - p1.x()) * wave_pos
-                wy = p1.y() + (p2.y() - p1.y()) * wave_pos
-                wave_radius = 2.5 + 2.0 * math.sin(wave_phase + edge_hash * math.pi * 2)
-                glow = QRadialGradient(QPointF(wx, wy), wave_radius * 4)
-                lc = LEVEL_COLORS.get(self.level, PARTICLE_COLOR) if self.level >= 0 else PARTICLE_COLOR
-                c = QColor(lc)
-                c.setAlpha(160)
-                glow.setColorAt(0, c)
-                glow.setColorAt(1, QColor(0, 0, 0, 0))
-                painter.setBrush(glow)
-                painter.setPen(Qt.NoPen)
-                painter.drawEllipse(QPointF(wx, wy), wave_radius * 4, wave_radius * 4)
-                painter.setBrush(QBrush(lc))
-                painter.drawEllipse(QPointF(wx, wy), wave_radius * 0.6, wave_radius * 0.6)
-
         # 节点（按深度从远到近绘制）
-        pulse_factor = 1.0
-        if self._active_phase:
-            pulse_factor = 1.0 + 0.20 * math.sin(self._pulse_phase)
-            pulse_factor *= 1.0 + 0.10 * math.sin(self._pulse_phase * 1.7 + 0.5)
-
         for idx in depth_order:
             node = self.nodes[idx]
             pt = self._map(node["x"], node["y"], node["z"])
@@ -578,7 +631,7 @@ class NeuronCanvas(QWidget):
                 painter.setPen(Qt.NoPen)
                 painter.drawEllipse(pt, 26 * depth_scale, 26 * depth_scale)
 
-            r = node["r"] * depth_scale * (1.4 if is_hl else 1.0) * pulse_factor
+            r = node["r"] * depth_scale * (1.4 if is_hl else 1.0)
             painter.setBrush(QBrush(node["color"]))
             painter.setPen(QPen(QColor(0, 0, 0, 80), 1))
             painter.drawEllipse(pt, r, r)
@@ -708,11 +761,19 @@ class NeuronMapWindow(QMainWindow):
             "font-size: 15px; font-weight: bold; color: #86c4ff; background: #161a28;"
             "padding: 8px 14px; border-radius: 8px; border: 1px solid #2a3050;"
         )
+        # 节点/边/云点 统计信息栏
+        self.info_label = QLabel("节点: 0  ·  连接: 0  ·  云点: 0")
+        self.info_label.setStyleSheet(
+            "font-size: 12px; color: #dce2f5; background: #161a28;"
+            "padding: 8px 14px; border-radius: 8px; border: 1px solid #2a3050;"
+        )
         legend = QLabel(
-            "● 真实专家    ● 神经元代表    ➜ 信息传递"
+            "● 真实专家    ● 神经元代表    ● 相空间云点    ➜ 信息传递"
         )
         legend.setStyleSheet("color: #8c96b4; font-size: 12px; padding: 8px;")
         top.addWidget(title)
+        top.addSpacing(10)
+        top.addWidget(self.info_label)
         top.addStretch()
         top.addWidget(legend)
         layout.addLayout(top)
@@ -770,10 +831,12 @@ class NeuronMapWindow(QMainWindow):
         etype = evt.get("type", "")
         if etype == "init":
             self.canvas.load_init(evt)
-            self.status_label.setText(
-                f"神经元已装载: {len(self.canvas.nodes)} 节点 · "
-                f"{len(self.canvas.all_pts)} 相空间点 · {len(self.canvas.edges)} 连接"
+            # 顶部信息栏统计
+            self.info_label.setText(
+                f"节点: {len(self.canvas.nodes)}  ·  连接: {len(self.canvas.edges)}  ·  "
+                f"云点: {len(self.canvas.all_pts)}"
             )
+            self.status_label.setText("神经元已装载")
         elif etype == "phase":
             self.canvas.set_phase(evt.get("text", ""), evt.get("level", -1))
             self.phase_label.setText(f"推理中: {evt.get('text', '')}")
@@ -792,6 +855,9 @@ class NeuronMapWindow(QMainWindow):
             self.status_label.setText(evt.get("text", ""))
         elif etype == "exit":
             QTimer.singleShot(100, self.close)
+        elif etype == "cognitive_center":
+            self.canvas.update_cognitive_center(evt)
+            self.status_label.setText("认知重心已更新")
 
     def closeEvent(self, event):
         try:

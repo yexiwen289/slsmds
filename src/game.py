@@ -23,23 +23,23 @@ import socket
 import subprocess
 import threading
 from typing import List, Optional, Dict
-from player import Player
-from essence_pool import EssencePool
-from game_record import GameRecord, DiscussionRecord, ConsoleCapture
-from scheduler import ExpertScheduler
-from knowledge_base import KnowledgeBase
-from global_knowledge import GlobalKnowledgeBase
-from observer import Observer
-from cognitive_map_widget import text_cognitive_map
-from replay_widget import load_replay_from_file, text_replay
-from counterfactual_widget import load_counterfactual_from_checkpoint, text_counterfactual_summary
-from multimodal import get_tts, get_attachment_manager, AttachmentDialog, TTSDialog, TTSProvider, AttachmentType
+from .player import Player
+from .essence_pool import EssencePool
+from .game_record import GameRecord, DiscussionRecord, ConsoleCapture
+from .scheduler import ExpertScheduler
+from .knowledge_base import KnowledgeBase
+from .global_knowledge import GlobalKnowledgeBase
+from .observer import Observer
+from .cognitive_map_widget import text_cognitive_map
+from .replay_widget import load_replay_from_file, text_replay
+from .counterfactual_widget import load_counterfactual_from_checkpoint, text_counterfactual_summary
+from .multimodal import get_tts, get_attachment_manager, AttachmentDialog, TTSDialog, TTSProvider, AttachmentType
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import Counter
 import math
 import shutil
-from emergence import synthesize_with_emergence, synthesize_solution_with_emergence
+from .emergence import synthesize_with_emergence, synthesize_solution_with_emergence
 
 
 def typewrite(text: str, delay: float = 0.003, end: str = "\n"):
@@ -52,7 +52,7 @@ def typewrite(text: str, delay: float = 0.003, end: str = "\n"):
     sys.stdout.flush()
 
 DEFAULT_THINKING = "disabled"
-from prompts_b64 import get_prompt as _get_b64_prompt
+from .prompts_b64 import get_prompt as _get_b64_prompt
 
 # 讨论停滞检测阈值
 STALL_THRESHOLD_ROUNDS = 3       # 连续N轮无新精华即认为停滞
@@ -106,9 +106,8 @@ class NeuronMapManager:
                 creationflags = subprocess.CREATE_NO_WINDOW
             self._proc = subprocess.Popen(
                 [sys.executable, script, "--port", str(self._port)],
-                cwd=base,
+                cwd=os.path.dirname(base),
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
                 creationflags=creationflags,
             )
 
@@ -252,11 +251,11 @@ class Game:
 
     def _init_mechanism_engine(self) -> None:
         """初始化机制技能引擎"""
-        from mechanism_skill import MechanismEngine
+        from .mechanism_skill import MechanismEngine
         self.mechanism_engine = MechanismEngine()
         # 使用共享 LLM 客户端
         if self._llm_client is None:
-            from llm_client import LLMClient
+            from .llm_client import LLMClient
             self._llm_client = LLMClient()
         self.mechanism_engine.set_llm_client(self._llm_client)
         if self.settings.get("enable_skill_system", True):
@@ -3371,7 +3370,7 @@ class Game:
         # 初始化时间维度耦合记忆（跨轮次连接净化与拓扑演化）
         # 如果已从检查点恢复，则保留历史状态，否则新建
         if self.temporal_memory is None:
-            from emergence import TemporalCouplingMemory
+            from .emergence import TemporalCouplingMemory
             self.temporal_memory = TemporalCouplingMemory(n_experts_max=200)
             print(f"   🌱 新建时间记忆（初始状态）")
         else:
@@ -3815,7 +3814,7 @@ class Game:
             player_names = [f"DeepSeek-{i}" for i in range(1, 6)]
 
         # 5. 构建玩家
-        from player import Player
+        from .player import Player
         players = []
         for name in player_names:
             pd = personas.get(name, {"persona_name": name, "persona": ""})
@@ -3934,7 +3933,7 @@ class Game:
 
         # 恢复设置和机制引擎
         game.settings = _load_settings()
-        from mechanism_skill import MechanismEngine
+        from .mechanism_skill import MechanismEngine
         game.mechanism_engine = MechanismEngine()
         if game.settings.get("enable_skill_system", True):
             game.mechanism_engine.add_builtin_skills()
@@ -3989,7 +3988,7 @@ class Game:
         # 恢复时间维度耦合记忆（跨对话连续性）
         tm_data = data.get("temporal_memory")
         if tm_data is not None:
-            from emergence import TemporalCouplingMemory
+            from .emergence import TemporalCouplingMemory
             game.temporal_memory = TemporalCouplingMemory.from_dict(tm_data)
             tm_stats = game.temporal_memory.get_network_stats(min(game.round_count, 200))
             print(f"   时间记忆: 轮次 {game.temporal_memory.round} | 活跃连接 {tm_stats.get('active_connections', 0)} | 密度 {tm_stats.get('connection_density', 0):.3f}")
@@ -4785,7 +4784,7 @@ def _new_discussion():
     _padded(f"{C_DIM('模型:')} {C_CYAN(model_label)}")
     _close_box(w)
     print()
-    from llm_client import LLMClient
+    from .llm_client import LLMClient
     _llm_client = LLMClient(app_cfg)
     game = Game(player_configs, problem=problem, discussion_mode=mode,
                 enable_vote=enable_vote, enable_debate=enable_debate,
@@ -4885,7 +4884,7 @@ def _self_awareness_cultivation_menu():
     _close_box(w)
     print()
 
-    from llm_client import LLMClient
+    from .llm_client import LLMClient
     _llm_client = LLMClient(app_cfg)
     game = Game(player_configs, problem="", discussion_mode=mode,
                 enable_vote=True, enable_debate=True,
@@ -4997,7 +4996,7 @@ def _startup_sequence():
     _padded(C_DIM('（密码错误时需自行配置 API 密钥）'))
     _empty_line()
     print(f"{N2}  {C_CYAN('▸')} {C_BOLD('密码')}  ", end='')
-    import auth
+    from . import auth
     ok = auth.authenticate()
     if ok:
         print(f"{C_GREEN('✔')}")
@@ -5075,7 +5074,7 @@ def _main_tui():
         print(f"{N2}  {C_MAGENTA(' [5] ')}  {C_BOLD('自我意识培养')}  {C_DIM('自动运行多轮自指性讨论')}")
         print(f"{N2}  {C_BRED(' [4] ')}  {C_BOLD('退出系统')}      {C_DIM('结束程序')}")
         _sep(w)
-        import auth
+        from . import auth
         if auth.AUTHENTICATED:
             auth_status = C_GREEN('✔ 已认证')
         else:
@@ -5237,7 +5236,7 @@ def _reset_settings():
 
 def _apply_settings(settings: dict) -> dict:
     """根据设置生成 LLM 客户端配置（无提供商限制）"""
-    import auth
+    from . import auth
     # 未认证用户：禁止使用硬编码 API，必须自行配置
     if not auth.AUTHENTICATED:
         settings["use_default"] = False
@@ -5357,7 +5356,7 @@ def _settings_menu():
 def _api_config_menu():
     """API 配置子菜单（无提供商限制）"""
     settings = _load_settings()
-    import auth
+    from . import auth
     if not auth.AUTHENTICATED:
         settings["use_default"] = False
         _save_settings(settings)
@@ -5616,7 +5615,7 @@ def _skill_management_menu():
 
 def _create_skill_wizard():
     """创建技能模板向导"""
-    from mechanism_skill import MechanismEngine
+    from .mechanism_skill import MechanismEngine
     temp_engine = MechanismEngine()
     skills_dir = _load_settings().get("skills_dir", "skills")
 
@@ -5648,7 +5647,7 @@ def _create_skill_wizard():
     skill_type = input(f"{C_CYAN('类型')} {C_DIM('[text/code/template/llm/shell, 默认 text]')}: ").strip() or "text"
 
     print(f"{N2}  {C_DIM('触发时机:')}")
-    from mechanism_skill import Trigger
+    from .mechanism_skill import Trigger
     for t in Trigger:
         print(f"{N2}    {C_DIM(f'  {t.value}')}  — {C_DIM(t.name)}")
     print(f"{N2}  ", end="")
@@ -5691,7 +5690,7 @@ def _create_skill_wizard():
 
 def _show_builtin_skills():
     """显示内置技能列表"""
-    from mechanism_skill import MechanismEngine
+    from .mechanism_skill import MechanismEngine
     engine = MechanismEngine()
     engine.add_builtin_skills()
 
@@ -5712,7 +5711,7 @@ def _show_builtin_skills():
 
 def _skill_detail_manager():
     """技能详情查看与编辑管理"""
-    from mechanism_skill import MechanismEngine, MechanismSkill
+    from .mechanism_skill import MechanismEngine, MechanismSkill
     engine = MechanismEngine()
     engine.add_builtin_skills()
 
@@ -5856,7 +5855,7 @@ def _skill_detail_manager():
 
 def _skill_statistics_view():
     """查看技能统计信息"""
-    from mechanism_skill import MechanismEngine
+    from .mechanism_skill import MechanismEngine
     engine = MechanismEngine()
     engine.add_builtin_skills()
 
@@ -5899,7 +5898,7 @@ def _skill_statistics_view():
 
 def _skill_import_menu():
     """从JSON文本导入技能"""
-    from mechanism_skill import MechanismEngine, MechanismSkill
+    from .mechanism_skill import MechanismEngine, MechanismSkill
     temp_engine = MechanismEngine()
 
     os.system("cls" if os.name == "nt" else "clear")
@@ -6141,7 +6140,7 @@ def _discussion_params_menu():
 
 def _tts_settings_menu():
     """语音输出（TTS）配置菜单"""
-    from multimodal import get_tts, TTSDialog
+    from .multimodal import get_tts, TTSDialog
     while True:
         os.system("cls" if os.name == "nt" else "clear")
         _banner()
@@ -6258,7 +6257,7 @@ def _get_player_configs(num: int, settings: dict) -> list:
 #         "输出一段简短的改进需求描述（50字以内），直接输出文本即可。"
 #     )
 #     try:
-#         from llm_client import LLMClient
+#         from .llm_client import LLMClient
 #         client = LLMClient()
 #         response, _ = client.chat(
 #             [{"role": "user", "content": prompt}],
@@ -6280,7 +6279,7 @@ def _get_player_configs(num: int, settings: dict) -> list:
 #     3. 解析方案并应用修改（含回退机制）
 #     """
 #     from mechanism_skill import _empty_line, _box, _sep, _padded, _footer, _close_box
-#     from llm_client import LLMClient
+#     from .llm_client import LLMClient
 #     import traceback
 #
 #     client = LLMClient()
