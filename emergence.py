@@ -2279,10 +2279,12 @@ def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
 
     # 每个节点保留 top-K 最强连接
     n_total = len(nodes_vectors)
-    K = min(5, n_total - 1)
+    K = min(5, n_total - 1) if n_total > 1 else 0
     edges = []
     seen = set()
     for i in range(n_total):
+        if K <= 0:
+            break
         top_k = np.argsort(sim[i])[::-1][:K]
         for j in top_k:
             if sim[i, j] > 0.15:  # 相似度阈值
@@ -2298,6 +2300,7 @@ def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
         step = max(1, len(all_vectors) // 250)
         _cloud = [v.vector.tolist() for v in all_vectors[::step]][:250]
 
+    print(f"[神经图] 推送: {n_real} 真实 + {n_total - n_real} 虚拟代表 = {n_total} 节点, {len(edges)} 边, {len(_cloud)} 云点")
     event_callback({
         "type": "init",
         "all_vectors": _cloud,
