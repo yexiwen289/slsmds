@@ -2509,29 +2509,6 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         # 压缩神经元发言（只保留第一句/关键句），大幅降低 token 消耗
         for nd in neuron_experts:
             nd['speech'] = _compress_speech(nd.get('speech', ''))
-        # ── 推送神经元点阵图初始化数据 ──
-        try:
-            _emit_init_neuron_map(event_callback, round_discussions, all_vectors)
-        except Exception:
-            pass
-        # ── 发射本轮讨论信号（专家间的信息传递） ──
-        if event_callback and current_round_pairs:
-            for from_i, to_j, text in current_round_pairs:
-                try:
-                    event_callback({"type": "signal", "from": from_i, "to": to_j, "text": text[:40]})
-                except Exception:
-                    pass
-            # 同时发送信号缓冲区，供神经元点阵图在合成期间持续重放
-            try:
-                event_callback({
-                    "type": "signal_buffer",
-                    "signals": [
-                        {"from": s[0], "to": s[1], "text": s[2][:40]}
-                        for s in current_round_pairs
-                    ],
-                })
-            except Exception:
-                pass
     else:
         amplified_discussions = round_discussions
         amp_ratio = 1.0
@@ -2539,6 +2516,37 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         neuron_experts = round_discussions
         for nd in neuron_experts:
             nd['speech'] = _compress_speech(nd.get('speech', ''))
+        # 非放大模式也构建相空间向量用于可视化
+        all_vectors = [
+            OpinionPhaseVector(d.get('speech', ''), d.get('player_name', ''))
+            for d in round_discussions
+        ]
+
+    # ── 推送神经元点阵图初始化数据（始终发送，不限放大模式） ──
+    try:
+        _emit_init_neuron_map(event_callback, round_discussions, all_vectors)
+    except Exception as e:
+        import sys
+        print(f"[神经图] 初始化推送失败: {e}", file=sys.stderr)
+
+    # ── 发射本轮讨论信号（专家间的信息传递） ──
+    if event_callback and current_round_pairs:
+        for from_i, to_j, text in current_round_pairs:
+            try:
+                event_callback({"type": "signal", "from": from_i, "to": to_j, "text": text[:40]})
+            except Exception:
+                pass
+        # 同时发送信号缓冲区，供神经元点阵图在合成期间持续重放
+        try:
+            event_callback({
+                "type": "signal_buffer",
+                "signals": [
+                    {"from": s[0], "to": s[1], "text": s[2][:40]}
+                    for s in current_round_pairs
+                ],
+            })
+        except Exception:
+            pass
 
     # 使用相变拓扑引擎（放大版）计算涌现层级
     engine = PhaseTransitionEngine(
