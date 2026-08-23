@@ -162,6 +162,8 @@ class NeuronCanvas(QWidget):
         self._edge_wave_phase = 0.0    # 边缘波相位（全局）
         self._ambient_counter = 0      # 环境粒子生成计数器
         self._pulse_phase = 0.0        # 节点脉冲相位
+        self._signal_buffer = []        # 信号缓冲区（持续重放）
+        self._signal_idx = 0            # 当前播放的信号索引
 
         # 动画定时器
         self._timer = QTimer(self)
@@ -318,6 +320,8 @@ class NeuronCanvas(QWidget):
         if not self._active_phase:
             # 推理结束，清空残留粒子
             self.particles.clear()
+            self._signal_buffer = []
+            self._signal_idx = 0
         self.update()
 
     def add_signal(self, from_i: int, to_j: int, text: str):
@@ -381,11 +385,35 @@ class NeuronCanvas(QWidget):
             self._pulse_phase = (self._pulse_phase + 0.05) % (math.pi * 2)
             self._ambient_counter += 1
 
-            # 每 2 帧在随机边上生成环境粒子
-            if self._ambient_counter % 2 == 0:
+            # 每 2 帧从信号缓冲区取一条真实信号发射粒子
+            if self._signal_buffer and self._ambient_counter % 2 == 0:
                 import random as _rng
-                # 从所有边中随机选 3-6 条
-                n_spawn = min(6, max(3, len(self.edges) // 4))
+                # 连续取信号，到头循环
+                sig = self._signal_buffer[self._signal_idx % len(self._signal_buffer)]
+                self._signal_idx = (self._signal_idx + 1) % len(self._signal_buffer)
+                from_i, to_j = sig.get("from", 0), sig.get("to", 0)
+                text = sig.get("text", "")
+                p1 = self._node_pos(from_i)
+                p2 = self._node_pos(to_j)
+                if p1 is not None and p2 is not None:
+                    if self.level >= 0:
+                        lc = LEVEL_COLORS.get(self.level, PARTICLE_COLOR)
+                        c = QColor(lc)
+                    else:
+                        c = QColor(PARTICLE_COLOR)
+                    c.setAlpha(220)
+                    self.particles.append({
+                        "x1": p1[0], "y1": p1[1], "z1": p1[2],
+                        "x2": p2[0], "y2": p2[1], "z2": p2[2],
+                        "t": 0.0,
+                        "text": text,
+                        "color": c,
+                        "speed": 0.015 + 0.008 * _rng.random(),
+                    })
+            elif self._ambient_counter % 3 == 0:
+                # 没有信号缓冲区时，随机选边生成粒子（带空文本）
+                import random as _rng
+                n_spawn = min(4, max(2, len(self.edges) // 5))
                 for _ in range(n_spawn):
                     edge = _rng.choice(self.edges)
                     a, b, w = edge[0], edge[1], edge[2]
@@ -393,7 +421,6 @@ class NeuronCanvas(QWidget):
                     p2 = self._node_pos(b)
                     if p1 is None or p2 is None:
                         continue
-                    # 颜色随层级变化
                     if self.level >= 0:
                         lc = LEVEL_COLORS.get(self.level, PARTICLE_COLOR)
                         c = QColor(lc)
@@ -403,7 +430,7 @@ class NeuronCanvas(QWidget):
                     self.particles.append({
                         "x1": p1[0], "y1": p1[1], "z1": p1[2],
                         "x2": p2[0], "y2": p2[1], "z2": p2[2],
-                        "t": _rng.random() * 0.3,  # 错开起始位置
+                        "t": _rng.random() * 0.3,
                         "text": "",
                         "color": c,
                         "speed": 0.012 + 0.012 * _rng.random(),
@@ -774,6 +801,12 @@ class NeuronMapWindow(QMainWindow):
         elif etype == "signal":
             self.canvas.add_signal(evt.get("from", 0), evt.get("to", 0),
                                    evt.get("text", ""))
+        elif etype == "signal_buffer":
+            self.canvas._signal_buffer = evt.get("signals", [])
+            self.canvas._signal_idx = 0
+            self.status_label.setText(
+                f"信号缓冲区已加载: {len(self.canvas._signal_buffer)} 条"
+            )
         elif etype == "highlight":
             self.canvas.highlight_nodes(evt.get("nodes", []))
         elif etype == "status":

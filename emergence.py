@@ -2521,6 +2521,17 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
                     event_callback({"type": "signal", "from": from_i, "to": to_j, "text": text[:40]})
                 except Exception:
                     pass
+            # 同时发送信号缓冲区，供神经元点阵图在合成期间持续重放
+            try:
+                event_callback({
+                    "type": "signal_buffer",
+                    "signals": [
+                        {"from": s[0], "to": s[1], "text": s[2][:40]}
+                        for s in current_round_pairs
+                    ],
+                })
+            except Exception:
+                pass
     else:
         amplified_discussions = round_discussions
         amp_ratio = 1.0
