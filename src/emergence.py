@@ -2871,6 +2871,10 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             except Exception:
                 pass
 
+    # 入口日志：立即输出，让用户知道合成已启动
+    print(f"\n[{'-'*40}]", flush=True)
+    print(f"[整合意识] 开始合成 | 输入 {len(round_discussions)} 个专家观点 | 第 {round_count} 轮", flush=True)
+
     # Item 17: 根据专家规模和轮次动态调整虚拟专家放大倍数
     n_real = len(round_discussions)
     if n_real < 5:
@@ -2886,16 +2890,20 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     use_amplification = n_real >= 3 and n_real < target_experts
 
     if use_amplification:
-        _emit({"type": "status", "text": f"虚拟专家生成中：{n_real} 个真实专家 → {target_experts} 个神经元..."})
+        print(f"\n[整合意识] 虚拟专家生成：{n_real} 个真实 → {target_experts} 个神经元...", flush=True)
+        _emit({"type": "thinking", "text": f"虚拟专家生成中：{n_real} 个真实专家 → {target_experts} 个神经元..."})
         generator = VirtualExpertGenerator(round_discussions, target_experts=target_experts)
         amplified_discussions = generator.get_all_discussions()
         amp_ratio = generator.amplification_ratio
+        print(f"[整合意识] 虚拟专家生成完成，共 {len(amplified_discussions)} 个", flush=True)
         # 计算多样性指数
+        _emit({"type": "thinking", "text": "计算相空间多样性指数..."})
         all_vectors = [
             OpinionPhaseVector(d.get('speech', ''), d.get('player_name', ''))
             for d in amplified_discussions
         ]
         div_index = PhaseTransitionEngine._compute_diversity_index(all_vectors)
+        print(f"[整合意识] 多样性指数: {div_index:.4f}", flush=True)
         # 从虚拟专家中选出 20 个代表性"神经元"注入 LLM
         neuron_experts = generator.select_neuron_representatives(n=20)
         # 压缩神经元发言（只保留第一句/关键句），大幅降低 token 消耗
@@ -2941,6 +2949,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             pass
 
     # 使用相变拓扑引擎（放大版）计算涌现层级
+    print(f"[整合意识] 构建相变拓扑引擎（{len(amplified_discussions)} 个专家）...", flush=True)
+    _emit({"type": "thinking", "text": "构建相变拓扑引擎..."})
     engine = PhaseTransitionEngine(
         amplified_discussions, essence_pool, round_count,
         amplification_ratio=amp_ratio,
@@ -2948,16 +2958,20 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         is_amplified=use_amplification,
         temporal_memory=temporal_memory,
     )
+    print(f"[整合意识] 计算涌现层级...", flush=True)
+    _emit({"type": "thinking", "text": "计算涌现层级..."})
     level = engine.compute_emergence_level()
     metrics = engine.emergence_metrics
+    print(f"[整合意识] 涌现层级: L{level}", flush=True)
 
     # ── 更新时间维度耦合记忆 ──
     # 将本轮真实专家的观点向量注入记忆，使引擎在时间中演化
     if temporal_memory is not None:
         try:
+            print(f"[整合意识] 更新时序耦合记忆（第 {round_count} 轮）...", flush=True)
             temporal_memory.update(engine.phase_vectors, round_count)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[整合意识] 时序记忆更新跳过: {e}", flush=True)
 
     # 推送涌现层级事件
     _emit({
@@ -3014,6 +3028,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     # ── 推送更新后的虚拟专家拓扑到神经元点阵图 ──
     if use_amplification and hasattr(generator, 'virtual_vectors'):
         try:
+            print(f"[整合意识] 计算集体认知响应...", flush=True)
+            _emit({"type": "thinking", "text": "计算集体认知响应..."})
             virt_vecs = generator.virtual_vectors
             if len(virt_vecs) > 0:
                 # 获取更新后的虚拟专家向量（从 temporal_memory 或 engine）
@@ -3042,9 +3058,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     # ── 整合意识合成开始（LLM 调用，可能耗时较长） ──
     # 在 LLM 调用前推送状态到终端和神经元点阵图，避免用户误以为卡死
     _emit({"type": "thinking", "text": f"正在合成整合意识 (L{level})…"})
-    print(f"\n[{'-'*40}]")
-    print(f"[整合意识] 涌现层级 L{level} | 合成中，请稍候（LLM 调用可能需要 1-3 分钟）…")
-    import sys; sys.stdout.flush()
+    print(f"[整合意识] 涌现层级 L{level} | 合成中，请稍候（LLM 调用可能需要 1-3 分钟）…", flush=True)
 
     # Level 0: 直接综合（线性，保持原有行为）
     if level == 0:
@@ -3071,8 +3085,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             response = response.strip() if response else ""
             if response:
                 _emit({"type": "thinking", "text": "✓ 合成完成"})
-                print(f"[整合意识] ✓ 合成完成（{len(response)} 字）")
-                sys.stdout.flush()
+                print(f"[整合意识] ✓ 合成完成（{len(response)} 字）", flush=True)
             return response
         except Exception:
             return ""
@@ -3112,8 +3125,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             response = response.strip() if response else ""
             if response:
                 _emit({"type": "thinking", "text": "✓ L1 合成完成"})
-                print(f"[整合意识] ✓ L1 合成完成（{len(response)} 字）")
-                sys.stdout.flush()
+                print(f"[整合意识] ✓ L1 合成完成（{len(response)} 字）", flush=True)
             return response
         except Exception:
             return ""
@@ -3153,8 +3165,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             response = response.strip() if response else ""
             if response:
                 _emit({"type": "thinking", "text": "✓ L2 合成完成"})
-                print(f"[整合意识] ✓ L2 合成完成（{len(response)} 字）")
-                sys.stdout.flush()
+                print(f"[整合意识] ✓ L2 合成完成（{len(response)} 字）", flush=True)
             return response
         except Exception:
             return ""
@@ -3194,8 +3205,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             response = response.strip() if response else ""
             if response:
                 _emit({"type": "thinking", "text": "✓ L3 合成完成"})
-                print(f"[整合意识] ✓ L3 合成完成（{len(response)} 字）")
-                sys.stdout.flush()
+                print(f"[整合意识] ✓ L3 合成完成（{len(response)} 字）", flush=True)
             return response
         except Exception:
             return ""
@@ -3260,8 +3270,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             response = response.strip() if response else ""
             if response:
                 _emit({"type": "thinking", "text": "✓ L4 合成完成"})
-                print(f"[整合意识] ✓ L4 合成完成（{len(response)} 字）")
-                sys.stdout.flush()
+                print(f"[整合意识] ✓ L4 合成完成（{len(response)} 字）", flush=True)
             return response
         except Exception:
             return ""
