@@ -154,6 +154,9 @@ class NeuronCanvas(QWidget):
         # 摄像机
         self.cam = OrbitCamera()
 
+        # Item 19: 认知重心演化轨迹
+        self.cognitive_trajectory = []  # [(x, y, z, round), ...]
+
         # ── 拓扑过渡动画 ──
         # 每次收到 init 事件后，从旧状态平滑过渡到新状态
         self._morph_t = 1.0       # 0.0 → 1.0，1.0 = 过渡完成
@@ -262,6 +265,12 @@ class NeuronCanvas(QWidget):
             # 将认知重心向量作为"发光节点"显示
             vec3d = _pca_3d(np.array([vector]))[0]
             cx, cy, cz = float(vec3d[0]), float(vec3d[1]), float(vec3d[2])
+            # Item 19: 记录认知重心轨迹
+            round_num = payload.get("round", len(self.cognitive_trajectory))
+            self.cognitive_trajectory.append((cx, cy, cz, round_num))
+            # 保留最近 50 个轨迹点
+            if len(self.cognitive_trajectory) > 50:
+                self.cognitive_trajectory = self.cognitive_trajectory[-50:]
             # 认知重心节点（高亮金色）
             center_node = {
                 "x": cx, "y": cy, "z": cz, "r": 12.0,
@@ -651,6 +660,20 @@ class NeuronCanvas(QWidget):
         font = painter.font()
         font.setPointSize(8)
         painter.setFont(font)
+
+        # Item 19: 认知重心演化轨迹（渐变线）
+        if len(self.cognitive_trajectory) >= 2:
+            for i in range(1, len(self.cognitive_trajectory)):
+                x1, y1, z1, _ = self.cognitive_trajectory[i - 1]
+                x2, y2, z2, _ = self.cognitive_trajectory[i]
+                p1 = self._map(x1, y1, z1)
+                p2 = self._map(x2, y2, z2)
+                # 渐变色：从暗到亮
+                alpha = int(40 + 140 * i / len(self.cognitive_trajectory))
+                width = 1.0 + 2.0 * i / len(self.cognitive_trajectory)
+                trail_color = QColor(255, 215, 0, alpha)
+                painter.setPen(QPen(trail_color, width))
+                painter.drawLine(p1, p2)
         for p in self.particles:
             t = p["t"]
             x = p["x1"] + (p["x2"] - p["x1"]) * t
@@ -858,6 +881,12 @@ class NeuronMapWindow(QMainWindow):
         elif etype == "cognitive_center":
             self.canvas.update_cognitive_center(evt)
             self.status_label.setText("认知重心已更新")
+        elif etype == "emergence_trajectory":
+            traj = evt.get("trajectory", [])
+            if traj:
+                self.status_label.setText(
+                    f"涌现轨迹: {len(traj)} 轮 | 当前 L{evt.get('current_level', '?')}"
+                )
 
     def closeEvent(self, event):
         try:

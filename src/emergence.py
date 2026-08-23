@@ -50,7 +50,7 @@ class OpinionPhaseVector:
     """
     将专家观点映射到多维相空间向量。
 
-    认知维度（6 维）：
+    认知维度（6 维 + 自适应扩展）：
     - coherence:      逻辑一致性（句子结构稳定性）
     - novelty:        新颖性（罕见概念密度）
     - depth:          认知深度（复杂逻辑链密度）
@@ -58,11 +58,11 @@ class OpinionPhaseVector:
     - specificity:    具体程度（可操作性指标密度）
     - emotional:      情感强度（情绪标记密度）
 
-    这些维度构成一个 6 维相空间，每个专家的观点是该空间中的一个点。
-    观点之间的"距离"和"相互作用"由该空间中的几何关系决定。
+    自适应维度扩展（Item 7）：
+    根据问题内容关键词自动扩展相空间维度，捕捉问题特定语义特征。
     """
 
-    DIMENSIONS = ['coherence', 'novelty', 'depth', 'divergence', 'specificity', 'emotional']
+    BASE_DIMENSIONS = ['coherence', 'novelty', 'depth', 'divergence', 'specificity', 'emotional']
     DIMENSION_NAMES_CN = {
         'coherence': '逻辑一致性',
         'novelty': '新颖性',
@@ -70,6 +70,32 @@ class OpinionPhaseVector:
         'divergence': '分歧度',
         'specificity': '具体程度',
         'emotional': '情感强度',
+    }
+
+    # 扩展维度关键词映射（问题内容→扩展维度）
+    _EXTENSION_KEYWORDS = {
+        '风险': 'risk',
+        '时间': 'time',
+        '成本': 'cost',
+        '创新': 'innovation',
+        '伦理': 'ethics',
+        '安全': 'safety',
+        '效率': 'efficiency',
+        '公平': 'fairness',
+        '可扩展': 'scalability',
+        '可持续': 'sustainability',
+    }
+    _EXTENSION_NAMES_CN = {
+        'risk': '风险意识',
+        'time': '时间维度',
+        'cost': '成本考量',
+        'innovation': '创新程度',
+        'ethics': '伦理性',
+        'safety': '安全性',
+        'efficiency': '效率',
+        'fairness': '公平性',
+        'scalability': '可扩展性',
+        'sustainability': '可持续性',
     }
 
     # 认知特征标记词库
@@ -80,16 +106,31 @@ class OpinionPhaseVector:
     _SPECIFICITY_INDICATORS = ['%', '数据', '案例', '例子', '比如', '例如', '具体', '实际', '指标', '方案']
     _EMOTIONAL_INDICATORS = ['！', '？', '令人', '惊讶', '遗憾', '关键', '重要', '必须', '绝对']
 
-    def __init__(self, text: str, player_name: str = ""):
+    def __init__(self, text: str, player_name: str = "", problem: str = ""):
         self.text = text
         self.player_name = player_name
+        self.problem = problem
+        self.dimensions = list(self.BASE_DIMENSIONS)
+
+        # 自适应维度扩展：根据问题内容检测需要扩展的维度
+        self._extension_dims = []
+        if problem:
+            for kw, dim in self._EXTENSION_KEYWORDS.items():
+                if kw in problem:
+                    self._extension_dims.append(dim)
+                    if dim not in self.dimensions:
+                        self.dimensions.append(dim)
+
         self.vector = self._embed(text)
         self.energy = float(np.linalg.norm(self.vector))  # 观点能量
 
     def _embed(self, text: str) -> np.ndarray:
-        """基于认知特征词典的经验嵌入函数"""
+        """基于认知特征词典的经验嵌入函数（含自适应扩展维度）"""
         if not text:
-            return np.array([0.2, 0.2, 0.2, 0.2, 0.2, 0.2])
+            base = np.array([0.2, 0.2, 0.2, 0.2, 0.2, 0.2])
+            # 扩展维度默认为 0.3
+            ext = np.full(len(self._extension_dims), 0.3)
+            return np.concatenate([base, ext])
 
         words = len(text)
         sentences = max(1, text.count('。') + text.count('！') + text.count('？') +
@@ -115,7 +156,18 @@ class OpinionPhaseVector:
         # emotional: 情感标记密度
         emotional = 0.1 + 0.9 * min(1.0, self._count_indicators(text, self._EMOTIONAL_INDICATORS) / 4)
 
-        return np.array([coherence, novelty, depth, divergence, specificity, emotional])
+        base = np.array([coherence, novelty, depth, divergence, specificity, emotional])
+
+        # 扩展维度嵌入：根据文本中是否包含相关关键词
+        ext = []
+        for dim in self._extension_dims:
+            cn_name = [k for k, v in self._EXTENSION_KEYWORDS.items() if v == dim]
+            if cn_name and cn_name[0] in text:
+                ext.append(0.7 + 0.3 * random.random())
+            else:
+                ext.append(0.3 + 0.2 * random.random())
+        ext_arr = np.array(ext) if ext else np.empty(0)
+        return np.concatenate([base, ext_arr])
 
     @staticmethod
     def _count_indicators(text: str, indicators: list) -> int:
@@ -123,16 +175,21 @@ class OpinionPhaseVector:
         return sum(text.count(ind) for ind in indicators)
 
     def similarity(self, other: 'OpinionPhaseVector') -> float:
-        """计算余弦相似度（观点在相空间中的夹角）"""
+        """计算余弦相似度（观点在相空间中的夹角），支持变长向量"""
         v1, v2 = self.vector, other.vector
+        # 如果向量长度不同，只取公共维度
+        min_len = min(len(v1), len(v2))
+        v1, v2 = v1[:min_len], v2[:min_len]
         n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
         if n1 < 1e-10 or n2 < 1e-10:
             return 0.0
         return float(np.dot(v1, v2) / (n1 * n2))
 
     def distance(self, other: 'OpinionPhaseVector') -> float:
-        """计算欧氏距离（观点在相空间中的距离）"""
-        return float(np.linalg.norm(self.vector - other.vector))
+        """计算欧氏距离（观点在相空间中的距离），支持变长向量"""
+        v1, v2 = self.vector, other.vector
+        min_len = min(len(v1), len(v2))
+        return float(np.linalg.norm(v1[:min_len] - v2[:min_len]))
 
     def __repr__(self) -> str:
         return f"<OpinionPhaseVector {self.player_name}: [{', '.join(f'{v:.2f}' for v in self.vector)}]>"
@@ -144,7 +201,10 @@ class OpinionPhaseVector:
 
 class NonLinearCouplingMatrix:
     """
-    专家观点之间的非线性耦合矩阵。
+    专家观点之间的非线性耦合矩阵（非对称 + 多尺度版）。
+
+    改进 (Item 8)：非对称耦合，W_ij ≠ W_ji，方向反映影响力差异。
+    改进 (Item 16)：多尺度耦合，同时保留短程强连接和长程弱连接。
 
     基于统计物理中 Ising 模型的启发：
     - 每个专家观点是一个"自旋"（spin）
@@ -161,26 +221,41 @@ class NonLinearCouplingMatrix:
     - 这正是"量变→质变"的数学基础
     """
 
-    def __init__(self, phase_vectors: list):
+    def __init__(self, phase_vectors: list, contribution_weights: np.ndarray = None):
         self.n = len(phase_vectors)
         self.vectors = phase_vectors
+        self.contribution_weights = contribution_weights
         self.matrix, self.coupling_histogram = self._build_coupling_matrix()
         self.eigenvalues = self._compute_eigenvalues()
         self._criticality_memory = []  # 临界性历史
 
+        # Item 16: 多尺度耦合分析
+        self._short_range = None  # 短程耦合（强连接）
+        self._long_range = None   # 长程耦合（弱连接）
+
     def _build_coupling_matrix(self) -> tuple:
         """
-        构建非线性耦合矩阵。
+        构建非对称 + 多尺度非线性耦合矩阵。
 
-        使用 tanh 非线性变换：
-        W_ij = tanh(α * (sim_ij - β))
+        非对称性 (Item 8)：
+        W_ij ≠ W_ji，方向由贡献度权重决定：
+        - 如果专家 i 贡献度高，其观点对 j 的影响力大于 j 对 i 的影响力
+        - W_ij = tanh(α * (sim_ij - β)) * (1 + 0.3 * (c_i - c_j))
+        其中 c_i 是专家 i 的归一化贡献度
 
-        其中 α=2.5 控制非线性陡峭度，β=0.3 控制偏移。
-        当 sim_ij = β 时，W_ij = 0（无耦合）。
-        当 sim_ij 偏离 β 时，耦合强度非线性增长。
+        多尺度 (Item 16)：
+        - 短程耦合：sim_ij > 0.5 时，直接高耦合强度
+        - 长程耦合：sim_ij < 0.2 时，弱耦合但仍保留
         """
         W = np.zeros((self.n, self.n))
         pairs = []
+
+        # 贡献度权重（用于非对称性）
+        if self.contribution_weights is not None and len(self.contribution_weights) == self.n:
+            cw = self.contribution_weights
+            cw = (cw - cw.min()) / (cw.max() - cw.min() + 1e-10)
+        else:
+            cw = np.ones(self.n)
 
         for i in range(self.n):
             for j in range(self.n):
@@ -188,10 +263,16 @@ class NonLinearCouplingMatrix:
                     W[i, j] = 0.0
                 else:
                     sim = self.vectors[i].similarity(self.vectors[j])
-                    # 非线性变换：tanh 使耦合强度在中等相似度时变化最剧烈
+                    # 基础耦合
                     coupling = math.tanh(2.5 * (sim - 0.3))
-                    W[i, j] = coupling
+                    # 非对称性修正：贡献度高的专家对他人影响力更大
+                    asymmetry = 1.0 + 0.3 * (cw[i] - cw[j])
+                    W[i, j] = coupling * asymmetry
                     pairs.append(coupling)
+
+        # 多尺度分离：记录短程和长程连接
+        self._short_range = np.where(np.abs(W) > 0.5, W, 0.0)
+        self._long_range = np.where((np.abs(W) > 0.01) & (np.abs(W) <= 0.5), W, 0.0)
 
         # 耦合强度直方图
         hist = Counter()
@@ -374,9 +455,15 @@ class OrderParameterDynamics:
                 new_state[i] = -new_state[i]
         return new_state
 
-    def simulate(self, steps: int = 20, temperature: float = 1.0, is_amplified: bool = False) -> dict:
+    def simulate(self, steps: int = 20, temperature: float = 1.0, is_amplified: bool = False,
+                 annealing_schedule: str = "cosine") -> dict:
         """
         模拟序参量在耦合矩阵下的演化。
+
+        Item 9: 支持指数和余弦退火调度替代线性衰减
+
+        参数:
+            annealing_schedule: "linear" / "exponential" / "cosine"
 
         大系统（n>>1）时自动增加步数保证足够的统计采样。
         对大系统，额外运行多组独立模拟以估算涨落和慢化。
@@ -409,7 +496,14 @@ class OrderParameterDynamics:
             run_order_params = []
 
             for step in range(actual_steps):
-                t = temperature * (1.0 - 0.5 * step / max(actual_steps, 1))
+                # Item 9: 支持指数和余弦退火调度
+                if annealing_schedule == "exponential":
+                    t = temperature * (0.5 ** (step / max(actual_steps, 1)))
+                elif annealing_schedule == "cosine":
+                    frac = step / max(actual_steps, 1)
+                    t = temperature * (0.5 + 0.5 * math.cos(frac * math.pi / 2))
+                else:  # linear (默认)
+                    t = temperature * (1.0 - 0.5 * step / max(actual_steps, 1))
 
                 # 大规模系统：每步执行多次遍历
                 n_sweeps = max(1, self.n // 10)
@@ -557,19 +651,26 @@ class SelfOrganizedCriticality:
         self.critical_threshold = 4.0  # 沙崩阈值
         self._rng = random.Random(42)  # 固定随机种子，确保可复现
 
-    def add_grain(self, x: int = None, y: int = None, energy: float = 1.0) -> int:
+    def add_grain(self, x: int = None, y: int = None, energy: float = 1.0,
+                  novelty: float = 0.5, divergence: float = 0.5) -> int:
         """
         添加一粒沙子，返回触发的沙崩大小。
 
+        Item 10: 用观点新颖度和分歧度计算语义能量，而非简单向量范数。
+        energy = 0.5 + 0.5 * (novelty + divergence) / 2
+
         参数：
-        - energy: 沙粒能量（可关联观点能量）
+        - energy: 沙粒能量（兼容旧调用）
+        - novelty: 观点新颖度（0~1），用于语义能量计算
+        - divergence: 观点分歧度（0~1），用于语义能量计算
         """
+        semantic_energy = 0.5 + 0.5 * (novelty + divergence) / 2
         if x is None:
             x = self._rng.randint(0, self.size - 1)
         if y is None:
             y = self._rng.randint(0, self.size - 1)
 
-        self.grid[x, y] += energy
+        self.grid[x, y] += semantic_energy
         self.total_grains += 1
 
         return self._topple()
@@ -850,11 +951,18 @@ class QuantumSuperposition:
        这确保了输出不遗漏任何可能的洞见。
     """
 
-    def __init__(self, phase_vectors: list):
+    def __init__(self, phase_vectors: list, contribution_weights: np.ndarray = None,
+                 temporal_memory: 'TemporalCouplingMemory' = None):
         self.vectors = phase_vectors
         self.n = len(phase_vectors)
-        # 振幅：每个观点在叠加态中的"概率幅"
-        self.amplitudes = np.ones(self.n) / math.sqrt(max(1, self.n))
+        self.temporal_memory = temporal_memory
+        # Item 4: 用历史贡献度加权初始振幅，而非均匀分布
+        if contribution_weights is not None and len(contribution_weights) == self.n:
+            cw = np.array(contribution_weights, dtype=np.float64)
+            cw = np.maximum(cw, 0.01)  # 确保非零
+            self.amplitudes = np.sqrt(cw / np.sum(cw))
+        else:
+            self.amplitudes = np.ones(self.n) / math.sqrt(max(1, self.n))
         self.collapsed = False
         self.measurement_history = []
 
@@ -862,18 +970,33 @@ class QuantumSuperposition:
         """
         计算量子干涉模式。
 
+        Item 13: 将时间累积耦合矩阵直接注入量子干涉计算，
+        使跨轮次的记忆影响观点间的干涉强度。
+
         干涉强度决定了观点之间的"共振"程度：
         - 建设性干涉：观点高度相似，振幅增强（同相）
         - 破坏性干涉：观点高度冲突，振幅减弱（反相）
         - 无干涉：观点独立，振幅不变
         """
         interference = np.zeros(self.n)
+
+        # 获取时间耦合矩阵（如果存在）
+        temporal_coupling = None
+        if self.temporal_memory is not None and self.n > 0:
+            temporal_coupling = self.temporal_memory.get_coupling_matrix(self.n)
+
         for i in range(self.n):
             for j in range(self.n):
                 if i != j:
                     sim = self.vectors[i].similarity(self.vectors[j])
                     # 干涉强度：-1（完全破坏性）到 +1（完全建设性）
-                    interference[i] += (sim - 0.5) * 2
+                    base_interference = (sim - 0.5) * 2
+                    # Item 13: 时间记忆修正
+                    if temporal_coupling is not None and i < len(temporal_coupling) and j < len(temporal_coupling):
+                        tc = temporal_coupling[i, j]
+                        # 历史耦合强 → 建设性干涉增强；历史耦合负 → 破坏性干涉增强
+                        base_interference = base_interference * (1 + 0.2 * tc)
+                    interference[i] += base_interference
 
         # 归一化
         max_val = max(abs(interference)) or 1
@@ -883,25 +1006,34 @@ class QuantumSuperposition:
         """
         纠缠熵：测量观点之间的量子纠缠程度。
 
+        Item 12: 使用冯·诺依曼熵 S = -Tr(ρ log ρ)。
+        构建真正的密度矩阵 ρ = Σ|α_i|² |ψ_i⟩⟨ψ_i|，
+        其中 |ψ_i⟩ 是第 i 个观点的相空间归一化向量。
+
         高纠缠熵意味着观点高度关联，无法独立处理。
         这是涌现综合的必要条件。
         """
         if self.n < 2:
             return 0.0
 
-        # 用相似度矩阵的熵来估计纠缠
-        sim_matrix = np.zeros((self.n, self.n))
-        for i in range(self.n):
-            for j in range(self.n):
-                sim_matrix[i, j] = self.vectors[i].similarity(self.vectors[j])
+        # 构建密度矩阵 ρ = Σ|α_i|² |ψ_i⟩⟨ψ_i|
+        probs = np.abs(self.amplitudes) ** 2
+        probs = probs / np.sum(probs)  # 归一化概率
 
-        # 归一化得到概率分布
-        flat = sim_matrix.flatten()
-        flat = flat / np.sum(flat) if np.sum(flat) > 0 else flat
+        # 将每个观点向量归一化为量子态
+        dim = len(self.vectors[0].vector) if self.vectors else 6
+        rho = np.zeros((dim, dim), dtype=np.complex128)
+        for i, pv in enumerate(self.vectors):
+            psi = pv.vector / (np.linalg.norm(pv.vector) + 1e-10)
+            rho += probs[i] * np.outer(psi, psi)
 
-        entropy = -sum(p * math.log(p + 1e-10) for p in flat)
+        # 冯·诺依曼熵 S = -Tr(ρ log ρ)
+        eigvals = np.linalg.eigvalsh(rho)
+        eigvals = np.maximum(eigvals, 1e-15)  # 避免 log(0)
+        entropy = -np.sum(eigvals * np.log(eigvals))
+
         # 归一化到 0~1
-        max_entropy = math.log(self.n * self.n)
+        max_entropy = math.log(dim)
         return entropy / max_entropy if max_entropy > 0 else 0.0
 
     def measure(self, temperature: float = 1.0) -> np.ndarray:
@@ -1366,7 +1498,7 @@ class VirtualExpertGenerator:
         return results
 
     def _generate_attractor(self, count: int) -> list:
-        """耦合矩阵吸引子采样生成"""
+        """耦合矩阵吸引子采样生成（带收敛检查）"""
         if self.n_real < 2 or count <= 0:
             return []
 
@@ -1385,9 +1517,21 @@ class VirtualExpertGenerator:
             for _ in range(count):
                 # 随机初始状态
                 state = np.random.randn(self.n_real) * 0.1
-                # 迭代到吸引子（非线性动力学）
-                for _ in range(30):
+                prev_state = state.copy()
+                converged = False
+                # 迭代到吸引子（非线性动力学），带收敛检查
+                for step in range(30):
                     state = np.tanh(1.5 * W @ state)
+                    # 收敛检查：如果状态变化小于阈值，提前停止
+                    delta = np.linalg.norm(state - prev_state)
+                    if delta < 1e-5:
+                        converged = True
+                        break
+                    prev_state = state.copy()
+
+                # 未收敛时跳过此样本（避免退化结果）
+                if not converged:
+                    continue
 
                 # 从吸引子状态生成虚拟专家
                 # 选择贡献最大的几个真实专家，混合他们的相空间向量
@@ -1568,6 +1712,8 @@ class TemporalCouplingMemory:
         self.prune_threshold = prune_threshold  # 剪枝阈值
         self.hebbian_strength = hebbian_strength  # Hebbian 强化系数
         self.round = 0
+        # Item 14: 涌现层级历史轨迹
+        self.emergence_level_history = []
 
         # 累积耦合矩阵 (n_max × n_max)：跨轮次的"认知记忆"
         self.cumulative_coupling = np.zeros((n_experts_max, n_experts_max))
@@ -1583,17 +1729,21 @@ class TemporalCouplingMemory:
         # 用于神经认知反馈闭环的 Hebbian 累积更新
         self.virtual_weight_matrix = np.zeros((n_experts_max, 6))
 
-    def update(self, phase_vectors: list, round_count: int):
+    def update(self, phase_vectors: list, round_count: int, speech_order: list = None):
         """
         用本轮专家观点更新耦合记忆。
+
+        Item 6 (STDP)：如果提供 speech_order（发言顺序列表），
+        则时序上接近的专家对获得额外增强（STDP 时序可塑性）。
 
         流程：
         1. 计算本轮即时耦合矩阵
         2. 时间衰减：所有旧连接按遗忘曲线衰减
         3. 融合新耦合：新交互注入累积记忆
-        4. Hebbian 强化：高频交互对连接增强
-        5. 连接净化：剪枝弱连接，淘汰冗余
-        6. 记录拓扑状态
+        4. STDP 时序增强（如果提供发言顺序）
+        5. Hebbian 强化：高频交互对连接增强
+        6. 连接净化：剪枝弱连接，淘汰冗余
+        7. 记录拓扑状态
         """
         n = len(phase_vectors)
         self.round = round_count
@@ -1624,7 +1774,20 @@ class TemporalCouplingMemory:
                 self.interaction_frequency[i, j] += 1
                 self.connection_age[i, j] = 0  # 重置年龄（被强化了）
 
-        # 4. Hebbian 强化：高频交互对连接增强
+        # 4. Item 6: STDP 时序可塑性
+        #    如果提供了发言顺序，时序上接近的专家对获得额外增强
+        if speech_order is not None and len(speech_order) >= 2:
+            for idx in range(len(speech_order) - 1):
+                i = speech_order[idx]
+                j = speech_order[idx + 1]
+                if i < n and j < n and i != j:
+                    # 时序接近的专家对，连接增强 10%
+                    self.cumulative_coupling[i, j] *= 1.1
+                    self.cumulative_coupling[j, i] *= 1.1
+                    self.connection_quality[i, j] = min(1.0, self.connection_quality[i, j] + 0.05)
+                    self.connection_quality[j, i] = min(1.0, self.connection_quality[j, i] + 0.05)
+
+        # 5. Hebbian 强化：高频交互对连接增强
         #    经常同时说话/互评的专家之间连接更强
         max_freq = max(1, np.max(self.interaction_frequency[:n, :n]))
         for i in range(n):
@@ -1711,6 +1874,20 @@ class TemporalCouplingMemory:
         if len(self.topology_history) > 50:
             self.topology_history = self.topology_history[-50:]
 
+    def record_emergence_level(self, level: int):
+        """Item 14: 记录涌现层级到历史轨迹"""
+        self.emergence_level_history.append({
+            "round": self.round,
+            "level": level,
+        })
+        # 保留最近 100 轮
+        if len(self.emergence_level_history) > 100:
+            self.emergence_level_history = self.emergence_level_history[-100:]
+
+    def get_emergence_level_trajectory(self) -> list:
+        """获取涌现层级历史轨迹"""
+        return list(self.emergence_level_history)
+
     def get_topology_trend(self) -> str:
         """
         拓扑演化趋势分析。
@@ -1784,6 +1961,7 @@ class TemporalCouplingMemory:
             "connection_quality": self.connection_quality.tolist(),
             "topology_history": self.topology_history,
             "virtual_weight_matrix": self.virtual_weight_matrix.tolist(),
+            "emergence_level_history": self.emergence_level_history,
         }
 
     @classmethod
@@ -1801,6 +1979,7 @@ class TemporalCouplingMemory:
         tm.connection_age = np.array(data.get("connection_age", [[0]]), dtype=int)
         tm.connection_quality = np.array(data.get("connection_quality", [[0]]))
         tm.topology_history = data.get("topology_history", [])
+        tm.emergence_level_history = data.get("emergence_level_history", [])
         vwm = data.get("virtual_weight_matrix", None)
         if vwm:
             arr = np.array(vwm)
@@ -2018,15 +2197,18 @@ class PhaseTransitionEngine:
         else:
             fluctuation = order_result["fluctuation"]
 
-        # 4. 沙堆模型（放大模式下投入更多沙粒）
+        # 4. 沙堆模型（放大模式下投入更多沙粒，使用语义能量）
         n_sand_grains = min(self.n_experts, 10)
         if self.is_amplified:
-            # 放大模式：每个真实专家投入更多沙粒，模拟更多专家观点
             n_sand_grains = min(self.n_experts * 2, 30)
         for i in range(n_sand_grains):
             idx = min(i, len(self.phase_vectors) - 1)
-            energy = float(np.linalg.norm(self.phase_vectors[idx].vector))
-            self.soc.add_grain(energy=max(0.5, energy))
+            pv = self.phase_vectors[idx]
+            # Item 10: 用新颖度和分歧度计算语义能量
+            vec = pv.vector
+            n_val = vec[1] if len(vec) > 1 else 0.5  # novelty
+            d_val = vec[3] if len(vec) > 3 else 0.5  # divergence
+            self.soc.add_grain(novelty=n_val, divergence=d_val)
         criticality = self.soc.criticality_level
         soc_active = self.soc.is_at_criticality
 
@@ -2102,6 +2284,9 @@ class PhaseTransitionEngine:
             level = 1
 
         self._level_cache = level
+        # Item 14: 记录涌现层级到时间记忆
+        if self.temporal_memory is not None:
+            self.temporal_memory.record_emergence_level(level)
         # 同时缓存度量指标，避免 emergence_metrics 重复计算
         self._metrics_cache = {
             "n_experts": self.n_experts,
@@ -2262,6 +2447,10 @@ class PhaseTransitionEngine:
         """
         Hebbian 更新虚拟专家向量（神经认知反馈闭环 Step 3）。
 
+        Item 5: 使用 Oja 规则进行权重归一化，防止权重爆炸。
+        ΔW_j = learning_rate * alpha_j * (p_real - W_j * (W_j·p_real))
+        Oja 规则自动保持权重向量范数接近于 1，是稳定的归一化学习规则。
+
         对每个真实发言向量 p_real，计算其与所有虚拟专家向量的距离，
         通过 sigmoid 激活，然后对激活强度 > 0.3 的虚拟专家进行 Hebbian 更新。
 
@@ -2285,11 +2474,14 @@ class PhaseTransitionEngine:
             distances = np.linalg.norm(updated - p_real, axis=1)  # (M,)
             alpha = 1.0 / (1.0 + np.exp(3.0 * (distances / D_max - 0.5)))  # (M,)
 
-            # Step 3: Hebbian 更新（只对激活的虚拟专家）
+            # Step 3: Hebbian 更新（Oja 规则，只对激活的虚拟专家）
             active_mask = alpha > 0.3
             if np.any(active_mask):
-                # ΔW_j = learning_rate * alpha_j * (p_real - W_j)
-                delta = learning_rate * alpha[active_mask, np.newaxis] * (p_real - updated[active_mask])
+                active_alpha = alpha[active_mask, np.newaxis]
+                active_vecs = updated[active_mask]
+                # Oja 规则: ΔW = lr * alpha * (p_real - W * (W·p_real))
+                proj = np.sum(active_vecs * p_real, axis=1, keepdims=True)
+                delta = learning_rate * active_alpha * (p_real - active_vecs * proj)
                 updated[active_mask] += delta
                 # 重新归一化到 [0, 1] 区间（保持相空间边界）
                 updated[active_mask] = np.clip(updated[active_mask], 0.0, 1.0)
@@ -2378,15 +2570,26 @@ class PhaseTransitionEngine:
 # 8. 旧版兼容函数（保留原有 API 签名）
 # ═══════════════════════════════════════════════════════════════
 
-def _compress_speech(speech: str, max_chars: int = 80) -> str:
+def _compress_speech(speech: str, n_experts: int = 10, base_chars: int = 80) -> str:
     """
     压缩发言文本到关键句，大幅降低 token 消耗。
+    根据专家数量动态调整压缩长度：专家越多压缩越狠，专家越少保留更多。
 
-    保留第一句（通常是核心论点），如果太长则截断到 max_chars。
-    如果发言很短（< 20 字）则原样保留，避免信息丢失。
+    参数：
+        n_experts: 当前专家总数（含虚拟），决定压缩力度
+        base_chars: 基准压缩长度（默认 80，对应 10 个专家）
     """
     if not speech:
         return speech
+    # 动态压缩：专家越多，压缩越狠
+    # 5人以下保留核心句（200字），5-10人逐步压缩，10人以上大幅压缩
+    if n_experts <= 5:
+        max_chars = 200
+    elif n_experts <= 10:
+        max_chars = int(base_chars * (1 + 1.5 * (10 - n_experts) / 5))
+    else:
+        max_chars = max(60, int(base_chars * 10 / n_experts))
+
     if len(speech) <= max_chars:
         return speech
     # 尝试按句号/问号/感叹号/分号切出第一句
@@ -2397,6 +2600,20 @@ def _compress_speech(speech: str, max_chars: int = 80) -> str:
     # 没找到合适的句末，直接截断
     return speech[:max_chars].rstrip('，, ') + '…'
 
+
+def _response_length_for_level(level: int) -> str:
+    """
+    Item 18: 根据涌现层级返回回复长度指令。
+    层级越高越精炼：L4最短（精准洞见），L0最长（直白叙述）。
+    """
+    lengths = {
+        0: "300字",
+        1: "250字",
+        2: "200字",
+        3: "150字",
+        4: "100字",
+    }
+    return lengths.get(level, "200字")
 
 def _truncate_response(response: str, max_chars: int = 200) -> str:
     """截断整合意识回复到 max_chars 字以内，超出时末尾加…"""
@@ -2654,8 +2871,18 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             except Exception:
                 pass
 
-    # 使用虚拟专家生成器将 10 人放大为 100 人效果
+    # Item 17: 根据专家规模和轮次动态调整虚拟专家放大倍数
     n_real = len(round_discussions)
+    if n_real < 5:
+        target_experts = max(100, n_real * 200)
+    elif n_real < 10:
+        target_experts = max(200, n_real * 100)
+    elif n_real < 20:
+        target_experts = max(500, n_real * 50)
+    else:
+        target_experts = max(1000, n_real * 20)
+    # 后期轮次放大更多（更多素材可供涌现）
+    target_experts = int(target_experts * (1.0 + 0.1 * min(round_count, 20)))
     use_amplification = n_real >= 3 and n_real < target_experts
 
     if use_amplification:
@@ -2673,14 +2900,14 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         neuron_experts = generator.select_neuron_representatives(n=20)
         # 压缩神经元发言（只保留第一句/关键句），大幅降低 token 消耗
         for nd in neuron_experts:
-            nd['speech'] = _compress_speech(nd.get('speech', ''))
+            nd['speech'] = _compress_speech(nd.get('speech', ''), n_experts=len(amplified_discussions))
     else:
         amplified_discussions = round_discussions
         amp_ratio = 1.0
         div_index = 0.0
         neuron_experts = round_discussions
         for nd in neuron_experts:
-            nd['speech'] = _compress_speech(nd.get('speech', ''))
+            nd['speech'] = _compress_speech(nd.get('speech', ''), n_experts=len(amplified_discussions))
         # 非放大模式也构建相空间向量用于可视化
         all_vectors = [
             OpinionPhaseVector(d.get('speech', ''), d.get('player_name', ''))
@@ -2738,6 +2965,15 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         "text": f"涌现层级判定: Level {level}",
         "level": level,
     })
+    # Item 14: 推送涌现层级历史轨迹
+    if temporal_memory is not None:
+        trajectory = temporal_memory.get_emergence_level_trajectory()
+        if trajectory:
+            _emit({
+                "type": "emergence_trajectory",
+                "trajectory": trajectory,
+                "current_level": level,
+            })
     # 高亮代表性神经元
     _emit({
         "type": "highlight",
@@ -2793,6 +3029,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
                     "type": "cognitive_center",
                     "vector": P_final.tolist(),
                     "all_vectors": _cloud,
+                    "round": round_count,
                 })
         except Exception:
             pass
@@ -2813,7 +3050,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
             f"用户问: {problem}\n\n"
             f"内部讨论记录:\n{discussion_text}\n\n"
             f"请直接给出你的统一回复（一段话，不要分段太多，不要提及子模块或讨论过程，就是你自己在回答）。"
-            f"\n\n请简短回答，控制在200字以内，精炼有力。"
+            f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
             f"{cognitive_orientation}"
         )
         try:
@@ -2850,7 +3087,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         synth_prompt = _build_meta_synthesis_prompt(
             problem, neuron_experts, critique_result, essence_summary
         )
-        synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
+        synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
         try:
             response, _ = llm_client.chat(
@@ -2886,7 +3123,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         synth_prompt = _build_emergence_synthesis_prompt(
             problem, neuron_experts, critique_result, essence_summary
         )
-        synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
+        synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
         try:
             response, _ = llm_client.chat(
@@ -2922,7 +3159,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         synth_prompt = _build_soc_synthesis_prompt(
             problem, neuron_experts, critique_result, essence_summary, metrics
         )
-        synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
+        synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
         try:
             response, _ = llm_client.chat(
@@ -2983,7 +3220,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         synth_prompt = _build_quantum_synthesis_prompt(
             problem, neuron_experts, combined_critique, essence_summary, metrics
         )
-        synth_prompt += "\n\n请简短回答，控制在200字以内，精炼有力。"
+        synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
         try:
             response, _ = llm_client.chat(

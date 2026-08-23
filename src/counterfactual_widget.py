@@ -12,6 +12,7 @@ import json
 import os
 import copy
 import datetime
+import numpy as np
 from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
 
@@ -33,6 +34,9 @@ class CounterfactualEngine:
     """
     反事实推演引擎。
 
+    Item 20: 深度集成时间维度耦合记忆，
+    支持"如果历史不同会怎样"的跨轮次推演。
+
     加载一个检查点，应用"what-if"操作，生成模拟结果。
     """
 
@@ -47,6 +51,10 @@ class CounterfactualEngine:
         self.problem = data.get("problem", data.get("game_record", {}).get("problem", ""))
         self.mode = data.get("discussion_mode", "physical")
         self.rounds = data.get("game_record", {}).get("rounds", [])
+
+        # Item 20: 加载时间维度耦合记忆
+        self.temporal_memory_data = data.get("temporal_memory", None)
+        self.modified_temporal = copy.deepcopy(self.temporal_memory_data)
 
         # 操作历史
         self.operations: List[Dict] = []
@@ -140,8 +148,94 @@ class CounterfactualEngine:
     def reset(self) -> None:
         """重置所有修改"""
         self.modified_items = copy.deepcopy(self.original_items)
+        self.modified_temporal = copy.deepcopy(self.temporal_memory_data)
         self.operations = []
         self.mode = self.original_data.get("discussion_mode", "physical")
+
+    # ── Item 20: 时间记忆操作 ──
+
+    def boost_temporal_coupling(self, factor: float = 1.5) -> bool:
+        """
+        "如果历史耦合更强会怎样" —— 增强所有历史耦合强度。
+        factor: 耦合强度放大倍数（默认 1.5x）
+        """
+        if self.modified_temporal is None:
+            return False
+        coupling = self.modified_temporal.get("cumulative_coupling", None)
+        if not coupling:
+            return False
+        matrix = np.array(coupling) * factor
+        self.modified_temporal["cumulative_coupling"] = np.clip(matrix, -1.0, 1.0).tolist()
+        self.operations.append({
+            "type": "temporal_boost",
+            "factor": factor,
+            "description": f"增强时间耦合 ×{factor}（模拟更强历史协同效应）",
+        })
+        return True
+
+    def weaken_temporal_coupling(self, factor: float = 0.5) -> bool:
+        """
+        "如果历史耦合更弱会怎样" —— 削弱所有历史耦合强度。
+        factor: 耦合强度衰减倍数（默认 0.5x）
+        """
+        if self.modified_temporal is None:
+            return False
+        coupling = self.modified_temporal.get("cumulative_coupling", None)
+        if not coupling:
+            return False
+        matrix = np.array(coupling) * factor
+        self.modified_temporal["cumulative_coupling"] = matrix.tolist()
+        self.operations.append({
+            "type": "temporal_weaken",
+            "factor": factor,
+            "description": f"削弱时间耦合 ×{factor}（模拟更弱历史协同效应）",
+        })
+        return True
+
+    def reset_temporal_memory(self) -> bool:
+        """
+        "如果历史从未发生过会怎样" —— 清空时间记忆。
+        """
+        if self.modified_temporal is None:
+            return False
+        # 清零耦合矩阵但保留结构
+        coupling = self.modified_temporal.get("cumulative_coupling", None)
+        if coupling:
+            self.modified_temporal["cumulative_coupling"] = np.zeros_like(np.array(coupling)).tolist()
+        self.modified_temporal["round"] = 0
+        self.modified_temporal["topology_history"] = []
+        self.modified_temporal["emergence_level_history"] = []
+        self.operations.append({
+            "type": "temporal_reset",
+            "description": "清空时间记忆（模拟历史归零的假设场景）",
+        })
+        return True
+
+    def get_temporal_stats(self) -> Dict:
+        """获取时间记忆统计信息"""
+        if self.modified_temporal is None:
+            return {"available": False}
+        coupling = self.modified_temporal.get("cumulative_coupling", None)
+        if not coupling:
+            return {"available": False, "reason": "无耦合数据"}
+        matrix = np.array(coupling)
+        active = np.sum(np.abs(matrix) > 0.05)
+        total = matrix.shape[0] * (matrix.shape[1] - 1) if matrix.shape[0] > 0 else 1
+        density = active / total if total > 0 else 0
+        hist = self.modified_temporal.get("emergence_level_history", [])
+        level_counts = {}
+        for entry in hist:
+            lv = entry.get("level", -1)
+            level_counts[lv] = level_counts.get(lv, 0) + 1
+        return {
+            "available": True,
+            "shape": list(matrix.shape),
+            "active_connections": int(active),
+            "connection_density": round(density, 4),
+            "rounds_recorded": self.modified_temporal.get("round", 0),
+            "topology_entries": len(self.modified_temporal.get("topology_history", [])),
+            "emergence_level_distribution": level_counts,
+        }
 
     # ── 分析 & 比较 ──
 
@@ -282,6 +376,29 @@ class CounterfactualEngine:
             lines.append("─" * 40)
             for op in self.operations:
                 lines.append(f"  · {op.get('description', '')}")
+            lines.append("")
+
+        # Item 20: 时间记忆信息
+        tstats = self.get_temporal_stats()
+        if tstats.get("available"):
+            lines.append("─" * 40)
+            lines.append("⏳ 时间耦合记忆")
+            lines.append("─" * 40)
+            lines.append(f"  记录轮次: {tstats['rounds_recorded']}")
+            lines.append(f"  活跃连接: {tstats['active_connections']} / {tstats['shape'][0]}×{tstats['shape'][1]}")
+            lines.append(f"  连接密度: {tstats['connection_density']:.2%}")
+            if tstats.get("emergence_level_distribution"):
+                dist = tstats["emergence_level_distribution"]
+                dist_str = ", ".join(f"L{k}: {v}次" for k, v in sorted(dist.items()))
+                lines.append(f"  涌现层级分布: {dist_str}")
+            # 有 temporal 操作时添加演化分析
+            temporal_ops = [op for op in self.operations if "temporal" in op["type"]]
+            if temporal_ops:
+                lines.append("  📌 可推演: 耦合强度变化将影响跨轮次认知协同效应")
+                if tstats["connection_density"] > 0.3:
+                    lines.append("  🔗 当前耦合密度较高，历史协同效应显著")
+                elif tstats["connection_density"] < 0.1:
+                    lines.append("  🔗 当前耦合密度较低，历史协同效应较弱")
             lines.append("")
 
         # 统计对比
@@ -659,6 +776,33 @@ class CounterfactualDialog(QDialog):
         mode_layout.addStretch()
         right_layout.addWidget(mode_group)
 
+        # Item 20: 时间记忆操作
+        if self.engine.temporal_memory_data is not None:
+            temporal_group = QGroupBox("⏳ 时间耦合记忆（反事实）")
+            temporal_layout = QVBoxLayout(temporal_group)
+
+            temporal_info = QLabel("调整历史耦合强度，模拟"如果历史不同"的跨轮次推演")
+            temporal_info.setStyleSheet("color: #888888; font-size: 11px;")
+            temporal_info.setWordWrap(True)
+            temporal_layout.addWidget(temporal_info)
+
+            temporal_btn_row = QHBoxLayout()
+            self.btn_boost_temporal = QPushButton("⬆ 增强历史耦合")
+            self.btn_boost_temporal.clicked.connect(self._boost_temporal)
+            temporal_btn_row.addWidget(self.btn_boost_temporal)
+
+            self.btn_weaken_temporal = QPushButton("⬇ 削弱历史耦合")
+            self.btn_weaken_temporal.clicked.connect(self._weaken_temporal)
+            temporal_btn_row.addWidget(self.btn_weaken_temporal)
+            temporal_layout.addLayout(temporal_btn_row)
+
+            self.btn_reset_temporal = QPushButton("🗑️ 清空时间记忆（历史归零）")
+            self.btn_reset_temporal.setStyleSheet("background-color: #c0392b; color: white;")
+            self.btn_reset_temporal.clicked.connect(self._reset_temporal)
+            temporal_layout.addWidget(self.btn_reset_temporal)
+
+            right_layout.addWidget(temporal_group)
+
         # 重置
         self.btn_reset = QPushButton("🔄 重置所有操作")
         self.btn_reset.setStyleSheet("background-color: #2a2a2a; color: #d4d4d4;")
@@ -852,6 +996,25 @@ class CounterfactualDialog(QDialog):
             self._refresh_essence_list()
             self._update_report()
 
+    # ── Item 20: 时间记忆操作回调 ──
+
+    def _boost_temporal(self):
+        self.engine.boost_temporal_coupling(factor=1.5)
+        self._update_report()
+
+    def _weaken_temporal(self):
+        self.engine.weaken_temporal_coupling(factor=0.5)
+        self._update_report()
+
+    def _reset_temporal(self):
+        reply = QMessageBox.question(
+            self, "确认清空", "确定要清空时间记忆吗？\n这将模拟历史归零的假设场景。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.engine.reset_temporal_memory()
+            self._update_report()
+
     def _update_report(self):
         report = self.engine.generate_counterfactual_synthesis()
         self.report_text.setText(report)
@@ -916,6 +1079,20 @@ class CounterfactualDialog(QDialog):
             lines.append("操作记录:")
             for op in self.engine.operations:
                 lines.append(f"  · {op.get('description', '')}")
+        # Item 20: 时间记忆统计
+        tstats = self.engine.get_temporal_stats()
+        if tstats.get("available"):
+            lines.append("")
+            lines.append("─" * 50)
+            lines.append("⏳ 时间耦合记忆统计")
+            lines.append("─" * 50)
+            lines.append(f"记录轮次: {tstats['rounds_recorded']}")
+            lines.append(f"活跃连接: {tstats['active_connections']} / {tstats['shape'][0]}×{tstats['shape'][1]}")
+            lines.append(f"连接密度: {tstats['connection_density']:.2%}")
+            if tstats.get("emergence_level_distribution"):
+                dist = tstats["emergence_level_distribution"]
+                for k, v in sorted(dist.items()):
+                    lines.append(f"  L{k} 出现次数: {v}")
         self.stats_text.setText("\n".join(lines))
 
     def _export_report(self):
