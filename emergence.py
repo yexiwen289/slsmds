@@ -1723,6 +1723,42 @@ class TemporalCouplingMemory:
 
         return f"{density_dir} | {quality_dir}"
 
+    def to_dict(self) -> dict:
+        """
+        序列化时间记忆为可 JSON 序列化的字典。
+
+        用于保存到检查点，实现跨对话的连续性。
+        """
+        return {
+            "n_max": self.n_max,
+            "decay_rate": self.decay_rate,
+            "prune_threshold": self.prune_threshold,
+            "hebbian_strength": self.hebbian_strength,
+            "round": self.round,
+            "cumulative_coupling": self.cumulative_coupling.tolist(),
+            "interaction_frequency": self.interaction_frequency.tolist(),
+            "connection_age": self.connection_age.tolist(),
+            "connection_quality": self.connection_quality.tolist(),
+            "topology_history": self.topology_history,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'TemporalCouplingMemory':
+        """从字典恢复时间记忆实例"""
+        tm = cls(
+            n_experts_max=data.get("n_max", 200),
+            decay_rate=data.get("decay_rate", 0.15),
+            prune_threshold=data.get("prune_threshold", 0.05),
+            hebbian_strength=data.get("hebbian_strength", 0.1),
+        )
+        tm.round = data.get("round", 0)
+        tm.cumulative_coupling = np.array(data.get("cumulative_coupling", [[0]]))
+        tm.interaction_frequency = np.array(data.get("interaction_frequency", [[0]]), dtype=int)
+        tm.connection_age = np.array(data.get("connection_age", [[0]]), dtype=int)
+        tm.connection_quality = np.array(data.get("connection_quality", [[0]]))
+        tm.topology_history = data.get("topology_history", [])
+        return tm
+
 
 # ═══════════════════════════════════════════════════════════════
 # 9. 相变拓扑引擎主类（增强版）

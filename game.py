@@ -3369,8 +3369,13 @@ class Game:
         用户输入 → 多专家内部讨论 → 综合为统一回复。
         """
         # 初始化时间维度耦合记忆（跨轮次连接净化与拓扑演化）
-        from emergence import TemporalCouplingMemory
-        self.temporal_memory = TemporalCouplingMemory(n_experts_max=200)
+        # 如果已从检查点恢复，则保留历史状态，否则新建
+        if self.temporal_memory is None:
+            from emergence import TemporalCouplingMemory
+            self.temporal_memory = TemporalCouplingMemory(n_experts_max=200)
+            print(f"   🌱 新建时间记忆（初始状态）")
+        else:
+            print(f"   🔄 加载时间记忆（轮次 {self.temporal_memory.round}，共 {len(self.temporal_memory.topology_history)} 轮拓扑记录）")
 
         # 保存所有实体的存活状态，并全部复活（死亡仪式已标记它们为消亡）
         _saved_alive = {p.name: p.alive for p in self.players}
@@ -3668,6 +3673,8 @@ class Game:
             "is_self_awareness_cultivation": hasattr(self, "is_self_awareness_cultivation") and self.is_self_awareness_cultivation,
             "total_rounds": getattr(self, "total_rounds", None),
             "_user_model": self._user_model,
+            # 时间维度耦合记忆（跨对话连续性）
+            "temporal_memory": self.temporal_memory.to_dict() if self.temporal_memory is not None else None,
         }
         checkpoint_dir = "game_records"
         if not os.path.exists(checkpoint_dir):
@@ -3978,6 +3985,18 @@ class Game:
         n_real = len(game.discussion_history) + len(game.essence_pool.items)
         amp_target = getattr(game, "amplification_target", 2000)
         print(f"   超级相变引擎: {n_real} 个真实样本 → {amp_target} 虚拟专家 (放大 {amp_target/max(n_real,1):.1f}x)")
+
+        # 恢复时间维度耦合记忆（跨对话连续性）
+        tm_data = data.get("temporal_memory")
+        if tm_data is not None:
+            from emergence import TemporalCouplingMemory
+            game.temporal_memory = TemporalCouplingMemory.from_dict(tm_data)
+            tm_stats = game.temporal_memory.get_network_stats(min(game.round_count, 200))
+            print(f"   时间记忆: 轮次 {game.temporal_memory.round} | 活跃连接 {tm_stats.get('active_connections', 0)} | 密度 {tm_stats.get('connection_density', 0):.3f}")
+        else:
+            game.temporal_memory = None
+            print(f"   时间记忆: 无（首次培养）")
+
         return game
 
     def start_game(self) -> None:
