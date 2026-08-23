@@ -157,6 +157,12 @@ class NeuronCanvas(QWidget):
         self._morph_t = 1.0       # 0.0 → 1.0，1.0 = 过渡完成
         self._morph_old = None    # {nodes, edges, all_pts} 旧状态快照
 
+        # ── 持续信息流动（合成/推理阶段） ──
+        self._active_phase = False     # 是否处于推理/输出阶段
+        self._edge_wave_phase = 0.0    # 边缘波相位（全局）
+        self._ambient_counter = 0      # 环境粒子生成计数器
+        self._pulse_phase = 0.0        # 节点脉冲相位
+
         # 动画定时器
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -308,6 +314,10 @@ class NeuronCanvas(QWidget):
     def set_phase(self, text: str, level: int = -1):
         self.phase_text = text
         self.level = level
+        self._active_phase = bool(text)
+        if not self._active_phase:
+            # 推理结束，清空残留粒子
+            self.particles.clear()
         self.update()
 
     def add_signal(self, from_i: int, to_j: int, text: str):
@@ -364,8 +374,48 @@ class NeuronCanvas(QWidget):
                 self._morph_old = None
                 self._morph_target = None
 
+        # ── 持续信息流动（合成/推理阶段） ──
+        if self._active_phase and self.edges:
+            # 推进全局波相位
+            self._edge_wave_phase = (self._edge_wave_phase + 0.04) % (math.pi * 2)
+            self._pulse_phase = (self._pulse_phase + 0.05) % (math.pi * 2)
+            self._ambient_counter += 1
+
+            # 每 2 帧在随机边上生成环境粒子
+            if self._ambient_counter % 2 == 0:
+                import random as _rng
+                # 从所有边中随机选 3-6 条
+                n_spawn = min(6, max(3, len(self.edges) // 4))
+                for _ in range(n_spawn):
+                    edge = _rng.choice(self.edges)
+                    a, b, w = edge[0], edge[1], edge[2]
+                    p1 = self._node_pos(a)
+                    p2 = self._node_pos(b)
+                    if p1 is None or p2 is None:
+                        continue
+                    # 颜色随层级变化
+                    if self.level >= 0:
+                        lc = LEVEL_COLORS.get(self.level, PARTICLE_COLOR)
+                        c = QColor(lc)
+                    else:
+                        c = QColor(PARTICLE_COLOR)
+                    c.setAlpha(int(180 + 75 * _rng.random()))
+                    self.particles.append({
+                        "x1": p1[0], "y1": p1[1], "z1": p1[2],
+                        "x2": p2[0], "y2": p2[1], "z2": p2[2],
+                        "t": _rng.random() * 0.3,  # 错开起始位置
+                        "text": "",
+                        "color": c,
+                        "speed": 0.012 + 0.012 * _rng.random(),
+                    })
+            # 限制粒子总数
+            if len(self.particles) > 120:
+                self.particles = self.particles[-80:]
+
+        # 推进粒子
         for p in self.particles:
-            p["t"] += 0.018
+            speed = p.get("speed", 0.018)
+            p["t"] += speed
             if p["t"] > 1.0:
                 p["t"] = 1.0
             moved = True
@@ -457,6 +507,10 @@ class NeuronCanvas(QWidget):
         edge_color = QColor(EDGE_COLOR)
         edge_color.setAlpha(edge_alpha)
         painter.setPen(QPen(edge_color, 1))
+
+        # 边波参数（活跃推理时产生流动光效）
+        wave_phase = self._edge_wave_phase if self._active_phase else -1
+
         for a, b, w in self.edges:
             if a >= len(self.nodes) or b >= len(self.nodes):
                 continue
@@ -467,10 +521,36 @@ class NeuronCanvas(QWidget):
             line_alpha = max(40, min(180, int(80 + w * 100)))
             line_color = QColor(edge_color)
             line_color.setAlpha(line_alpha)
-            painter.setPen(QPen(line_color, max(0.5, w * 2.5)))
+            pen_width = max(0.5, w * 2.5)
+            painter.setPen(QPen(line_color, pen_width))
             painter.drawLine(p1, p2)
 
+            # 边缘波：流动光点（沿线段移动）
+            if wave_phase >= 0:
+                # 每条边有一个相位偏移，使光点在不同位置错开
+                edge_hash = (a * 7 + b * 13) % 100 / 100.0
+                wave_pos = (wave_phase / (math.pi * 2) + edge_hash) % 1.0
+                wx = p1.x() + (p2.x() - p1.x()) * wave_pos
+                wy = p1.y() + (p2.y() - p1.y()) * wave_pos
+                wave_radius = 2.5 + 2.0 * math.sin(wave_phase + edge_hash * math.pi * 2)
+                glow = QRadialGradient(QPointF(wx, wy), wave_radius * 4)
+                lc = LEVEL_COLORS.get(self.level, PARTICLE_COLOR) if self.level >= 0 else PARTICLE_COLOR
+                c = QColor(lc)
+                c.setAlpha(160)
+                glow.setColorAt(0, c)
+                glow.setColorAt(1, QColor(0, 0, 0, 0))
+                painter.setBrush(glow)
+                painter.setPen(Qt.NoPen)
+                painter.drawEllipse(QPointF(wx, wy), wave_radius * 4, wave_radius * 4)
+                painter.setBrush(QBrush(lc))
+                painter.drawEllipse(QPointF(wx, wy), wave_radius * 0.6, wave_radius * 0.6)
+
         # 节点（按深度从远到近绘制）
+        pulse_factor = 1.0
+        if self._active_phase:
+            pulse_factor = 1.0 + 0.20 * math.sin(self._pulse_phase)
+            pulse_factor *= 1.0 + 0.10 * math.sin(self._pulse_phase * 1.7 + 0.5)
+
         for idx in depth_order:
             node = self.nodes[idx]
             pt = self._map(node["x"], node["y"], node["z"])
@@ -492,7 +572,7 @@ class NeuronCanvas(QWidget):
                 painter.setPen(Qt.NoPen)
                 painter.drawEllipse(pt, 26 * depth_scale, 26 * depth_scale)
 
-            r = node["r"] * depth_scale * (1.4 if is_hl else 1.0)
+            r = node["r"] * depth_scale * (1.4 if is_hl else 1.0) * pulse_factor
             painter.setBrush(QBrush(node["color"]))
             painter.setPen(QPen(QColor(0, 0, 0, 80), 1))
             painter.drawEllipse(pt, r, r)
@@ -584,13 +664,19 @@ class NeuronCanvas(QWidget):
                 badge
             )
 
-        # 左下角操作提示
+        # 左下角状态与操作提示
         painter.setPen(DIM_COLOR)
         font = painter.font()
         font.setPointSize(8)
         painter.setFont(font)
-        painter.drawText(QPointF(70, self.height() - 6),
-                         "拖拽旋转 · 滚轮缩放")
+        if self._active_phase:
+            painter.setPen(LEVEL_COLORS.get(self.level, PARTICLE_COLOR) if self.level >= 0 else PARTICLE_COLOR)
+            painter.drawText(QPointF(70, self.height() - 6),
+                             "● 信息流动中 · 拖拽旋转 · 滚轮缩放")
+        else:
+            painter.setPen(DIM_COLOR)
+            painter.drawText(QPointF(70, self.height() - 6),
+                             "拖拽旋转 · 滚轮缩放")
 
         painter.end()
 
