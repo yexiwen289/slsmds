@@ -325,7 +325,7 @@ class NeuronCanvas(QWidget):
         self.update()
 
     def add_signal(self, from_i: int, to_j: int, text: str):
-        """在线段上添加一个信息传递粒子"""
+        """在线段上添加一个信息传递粒子，并自动创建回复信号"""
         p1 = self._node_pos(from_i)
         p2 = self._node_pos(to_j)
         if p1 is None or p2 is None:
@@ -336,6 +336,7 @@ class NeuronCanvas(QWidget):
                     break
             if p1 is None or p2 is None:
                 return
+        # 原始信号
         color = PARTICLE_COLOR
         if from_i == to_j:
             color = QColor(255, 205, 66)
@@ -343,8 +344,24 @@ class NeuronCanvas(QWidget):
             "x1": p1[0], "y1": p1[1], "z1": p1[2],
             "x2": p2[0], "y2": p2[1], "z2": p2[2],
             "t": 0.0, "text": text, "color": color,
+            "speed": 0.018,
         })
-        if len(self.particles) > 40:
+        # 回复信号（本地生成，不调 LLM）：目标 → 来源
+        if from_i != to_j:
+            _reply_text = f"↩ 收到"
+            _rp1 = self._node_pos(to_j)
+            _rp2 = self._node_pos(from_i)
+            _reply_color = QColor(color)
+            _reply_color.setAlpha(160)
+            self.particles.append({
+                "x1": _rp1[0], "y1": _rp1[1], "z1": _rp1[2],
+                "x2": _rp2[0], "y2": _rp2[1], "z2": _rp2[2],
+                "t": 0.0, "text": _reply_text, "color": _reply_color,
+                "speed": 0.018,
+                "_delay": 0.4,  # 延迟帧，等原始信号走一段后再出现
+            })
+        # 限制粒子总数
+        if len(self.particles) > 60:
             self.particles = self.particles[-40:]
         self.update()
 
@@ -385,62 +402,24 @@ class NeuronCanvas(QWidget):
             self._pulse_phase = (self._pulse_phase + 0.05) % (math.pi * 2)
             self._ambient_counter += 1
 
-            # 每 2 帧从信号缓冲区取一条真实信号发射粒子
+            # 每 2 帧从信号缓冲区取一条真实信号发射（带自动回复）
             if self._signal_buffer and self._ambient_counter % 2 == 0:
-                import random as _rng
-                # 连续取信号，到头循环
                 sig = self._signal_buffer[self._signal_idx % len(self._signal_buffer)]
                 self._signal_idx = (self._signal_idx + 1) % len(self._signal_buffer)
-                from_i, to_j = sig.get("from", 0), sig.get("to", 0)
-                text = sig.get("text", "")
-                p1 = self._node_pos(from_i)
-                p2 = self._node_pos(to_j)
-                if p1 is not None and p2 is not None:
-                    if self.level >= 0:
-                        lc = LEVEL_COLORS.get(self.level, PARTICLE_COLOR)
-                        c = QColor(lc)
-                    else:
-                        c = QColor(PARTICLE_COLOR)
-                    c.setAlpha(220)
-                    self.particles.append({
-                        "x1": p1[0], "y1": p1[1], "z1": p1[2],
-                        "x2": p2[0], "y2": p2[1], "z2": p2[2],
-                        "t": 0.0,
-                        "text": text,
-                        "color": c,
-                        "speed": 0.015 + 0.008 * _rng.random(),
-                    })
-            elif self._ambient_counter % 3 == 0:
-                # 没有信号缓冲区时，随机选边生成粒子（带空文本）
-                import random as _rng
-                n_spawn = min(4, max(2, len(self.edges) // 5))
-                for _ in range(n_spawn):
-                    edge = _rng.choice(self.edges)
-                    a, b, w = edge[0], edge[1], edge[2]
-                    p1 = self._node_pos(a)
-                    p2 = self._node_pos(b)
-                    if p1 is None or p2 is None:
-                        continue
-                    if self.level >= 0:
-                        lc = LEVEL_COLORS.get(self.level, PARTICLE_COLOR)
-                        c = QColor(lc)
-                    else:
-                        c = QColor(PARTICLE_COLOR)
-                    c.setAlpha(int(180 + 75 * _rng.random()))
-                    self.particles.append({
-                        "x1": p1[0], "y1": p1[1], "z1": p1[2],
-                        "x2": p2[0], "y2": p2[1], "z2": p2[2],
-                        "t": _rng.random() * 0.3,
-                        "text": "",
-                        "color": c,
-                        "speed": 0.012 + 0.012 * _rng.random(),
-                    })
+                self.add_signal(
+                    sig.get("from", 0), sig.get("to", 0),
+                    sig.get("text", "")
+                )
             # 限制粒子总数
             if len(self.particles) > 120:
                 self.particles = self.particles[-80:]
 
-        # 推进粒子
+        # 推进粒子（带延迟的回复粒子在延迟前不移动）
         for p in self.particles:
+            _delay = p.get("_delay", 0.0)
+            if _delay > 0:
+                p["_delay"] = max(0.0, _delay - 0.03)
+                continue
             speed = p.get("speed", 0.018)
             p["t"] += speed
             if p["t"] > 1.0:
