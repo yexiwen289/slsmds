@@ -887,6 +887,11 @@ class NeuronMapWindow(QMainWindow):
                 self.status_label.setText(
                     f"涌现轨迹: {len(traj)} 轮 | 当前 L{evt.get('current_level', '?')}"
                 )
+        elif etype == "thinking":
+            text = evt.get("text", "思考中…")
+            self.status_label.setText(f"⏳ {text}")
+            # 清除高亮，显示等待状态
+            self.canvas.highlighted_nodes = set()
 
     def closeEvent(self, event):
         try:

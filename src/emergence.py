@@ -3039,6 +3039,13 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     if essence_pool and hasattr(essence_pool, 'items') and essence_pool.items:
         essence_summary = essence_pool.get_pool_summary(top_n=5)
 
+    # ── 整合意识合成开始（LLM 调用，可能耗时较长） ──
+    # 在 LLM 调用前推送状态到终端和神经元点阵图，避免用户误以为卡死
+    _emit({"type": "thinking", "text": f"正在合成整合意识 (L{level})…"})
+    print(f"\n[{'-'*40}]")
+    print(f"[整合意识] 涌现层级 L{level} | 合成中，请稍候（LLM 调用可能需要 1-3 分钟）…")
+    import sys; sys.stdout.flush()
+
     # Level 0: 直接综合（线性，保持原有行为）
     if level == 0:
         discussion_text = "\n\n".join(
@@ -3061,7 +3068,12 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
                 caller=caller_tag,
                 show_reasoning=False, show_answer=False,
             )
-            return response.strip() if response else ""
+            response = response.strip() if response else ""
+            if response:
+                _emit({"type": "thinking", "text": "✓ 合成完成"})
+                print(f"[整合意识] ✓ 合成完成（{len(response)} 字）")
+                sys.stdout.flush()
+            return response
         except Exception:
             return ""
 
@@ -3097,7 +3109,12 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
                 caller=f"{caller_tag}-元综合",
                 show_reasoning=False, show_answer=False,
             )
-            return response.strip() if response else ""
+            response = response.strip() if response else ""
+            if response:
+                _emit({"type": "thinking", "text": "✓ L1 合成完成"})
+                print(f"[整合意识] ✓ L1 合成完成（{len(response)} 字）")
+                sys.stdout.flush()
+            return response
         except Exception:
             return ""
 
@@ -3133,7 +3150,12 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
                 caller=f"{caller_tag}-涌现综合",
                 show_reasoning=False, show_answer=False,
             )
-            return response.strip() if response else ""
+            response = response.strip() if response else ""
+            if response:
+                _emit({"type": "thinking", "text": "✓ L2 合成完成"})
+                print(f"[整合意识] ✓ L2 合成完成（{len(response)} 字）")
+                sys.stdout.flush()
+            return response
         except Exception:
             return ""
 
@@ -3169,7 +3191,12 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
                 caller=f"{caller_tag}-自组织临界涌现",
                 show_reasoning=False, show_answer=False,
             )
-            return response.strip() if response else ""
+            response = response.strip() if response else ""
+            if response:
+                _emit({"type": "thinking", "text": "✓ L3 合成完成"})
+                print(f"[整合意识] ✓ L3 合成完成（{len(response)} 字）")
+                sys.stdout.flush()
+            return response
         except Exception:
             return ""
 
@@ -3230,7 +3257,12 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
                 caller=f"{caller_tag}-量子叠加深度涌现",
                 show_reasoning=False, show_answer=False,
             )
-            return response.strip() if response else ""
+            response = response.strip() if response else ""
+            if response:
+                _emit({"type": "thinking", "text": "✓ L4 合成完成"})
+                print(f"[整合意识] ✓ L4 合成完成（{len(response)} 字）")
+                sys.stdout.flush()
+            return response
         except Exception:
             return ""
 
