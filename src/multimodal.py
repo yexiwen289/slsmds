@@ -351,28 +351,6 @@ class TextToSpeech:
         # 合并所有音频段并播放
         self._play_audio_parts(audio_parts, show_debug)
 
-    def _corrupt_audio(self, data: bytes) -> bytes:
-        """轻微破坏音频字节，产生机械音效果"""
-        import random
-        if len(data) < 2000:
-            return data
-        data = bytearray(data)
-        # 跳过文件头，在数据区随机破坏
-        start = 1024
-        end = len(data) - 1024
-        if end <= start:
-            return bytes(data)
-        # 随机置零几个字节（产生断续机械感）
-        rng = random.Random()
-        for _ in range(3):
-            pos = rng.randint(start, end)
-            data[pos] = 0
-        # 翻转几个字节的位（产生失真感）
-        for _ in range(3):
-            pos = rng.randint(start, end)
-            data[pos] = data[pos] ^ 0xAA
-        return bytes(data)
-
     async def _speak_edge_tts(self, text: str, show_debug: bool = False):
         """
         通过 edge-tts（微软免费 TTS）合成语音并静默播放。
@@ -409,14 +387,10 @@ class TextToSpeech:
                 if show_debug:
                     print(f"  ✓ 合成成功 ({elapsed:.1f}s)")
 
-                # 读取音频数据并轻微破坏以产生机械音
+                # 读取音频数据加入播放列表
                 with open(tmp_path, "rb") as f:
                     audio_data = f.read()
-                corrupted = self._corrupt_audio(audio_data)
-                # 写回破坏后的数据
-                with open(tmp_path, "wb") as f:
-                    f.write(corrupted)
-                audio_parts.append(corrupted)
+                audio_parts.append(audio_data)
 
                 # 立即播放（边合成边播，减少等待感）
                 try:

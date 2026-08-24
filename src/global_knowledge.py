@@ -13,7 +13,7 @@ import json
 import os
 import re
 from collections import Counter, defaultdict
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from datetime import datetime
 
 
@@ -241,23 +241,8 @@ class GlobalKnowledgeBase:
     @staticmethod
     def _split_terms(text: str) -> List[str]:
         """将文本拆分为检索词（中文滑动窗口 + 英文单词）"""
-        text = (text or "").lower().strip()
-        if not text:
-            return []
-        terms = set()
-        # 英文单词
-        for w in re.findall(r'[a-zA-Z]{3,}', text):
-            terms.add(w)
-        # 中文短语
-        chinese = re.findall(r'[\u4e00-\u9fff]{2,}', text)
-        for seg in chinese:
-            if len(seg) <= 4:
-                terms.add(seg)
-            else:
-                for size in (2, 3, 4):
-                    for i in range(len(seg) - size + 1):
-                        terms.add(seg[i:i + size])
-        return [t for t in terms if len(t) >= 2]
+        from . import split_terms
+        return split_terms(text)
 
     @staticmethod
     def _compute_similarity(terms_a: List[str], terms_b: List[str]) -> float:

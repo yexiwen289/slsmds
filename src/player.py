@@ -143,73 +143,14 @@ class Player:
     def _safe_parse_json(content: str, required_keys: List[str],
                          defaults: Optional[Dict] = None) -> Optional[Dict]:
         """Robust JSON extraction from LLM output with multiple fallback strategies."""
-        defaults = defaults or {}
-
-        if not content or not content.strip():
+        from . import safe_parse_json
+        result = safe_parse_json(content, expected_keys=required_keys)
+        if result is None:
             return None
-
-        # Strategy 1: direct parse
-        try:
-            result = json.loads(content.strip())
-            if isinstance(result, dict):
-                return result
-        except Exception:
-            pass
-
-        # Strategy 2: find first {...} block (non-greedy, balanced)
-        for start in range(len(content)):
-            if content[start] == '{':
-                depth = 0
-                for end in range(start, len(content)):
-                    if content[end] == '{':
-                        depth += 1
-                    elif content[end] == '}':
-                        depth -= 1
-                        if depth == 0:
-                            candidate = content[start:end + 1]
-                            try:
-                                result = json.loads(candidate)
-                                if isinstance(result, dict):
-                                    return result
-                            except Exception:
-                                break
-
-        # Strategy 3: try to fix common issues (unquoted keys, etc.)
-        match = re.search(r'\{[^{}]*\}', content)
-        if match:
-            try:
-                result = json.loads(match.group(0))
-                if isinstance(result, dict):
-                    return result
-            except Exception:
-                pass
-
-        # Strategy 4: for simple key-value extraction (last resort)
-        extracted = {}
-        for key in required_keys:
-            pattern = rf'"{key}"\s*:\s*"([^"]*)"'
-            m = re.search(pattern, content)
-            if m:
-                extracted[key] = m.group(1)
-                continue
-            pattern2 = rf'"{key}"\s*:\s*([^,}}\n]+)'
-            m2 = re.search(pattern2, content)
-            if m2:
-                extracted[key] = m2.group(1).strip().strip('"').strip("'")
-                continue
-            pattern3 = rf'\b{key}\s*:\s*([^,\n}}]+)'
-            m3 = re.search(pattern3, content)
-            if m3:
-                extracted[key] = m3.group(1).strip().strip('"').strip("'")
-                continue
-
-        if extracted:
+        if defaults:
             for k, v in defaults.items():
-                if k not in extracted:
-                    extracted[k] = v
-            return extracted
-
-        return None
+                result.setdefault(k, v)
+        return result
 
     def create_persona(self, taken_personas: str = "", problem: str = "") -> str:
         """创建专业背景人设"""

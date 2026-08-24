@@ -72,35 +72,8 @@ class Observer:
     @staticmethod
     def _parse_observer_json(content: str) -> Optional[Dict]:
         """从LLM输出中提取有效的JSON"""
-        if not content or not content.strip():
-            return None
-
-        # 直接解析
-        try:
-            result = json.loads(content.strip())
-            if isinstance(result, dict):
-                return result
-        except Exception:
-            pass
-
-        # 找第一个 {...}
-        for start in range(len(content)):
-            if content[start] == '{':
-                depth = 0
-                for end in range(start, len(content)):
-                    if content[end] == '{':
-                        depth += 1
-                    elif content[end] == '}':
-                        depth -= 1
-                        if depth == 0:
-                            candidate = content[start:end + 1]
-                            try:
-                                result = json.loads(candidate)
-                                if isinstance(result, dict):
-                                    return result
-                            except Exception:
-                                pass
-        return None
+        from . import safe_parse_json
+        return safe_parse_json(content, expected_keys=["summary", "blind_spots", "next_divergence", "recommended_action", "action_reason"])
 
     @staticmethod
     def _default_response() -> Dict:

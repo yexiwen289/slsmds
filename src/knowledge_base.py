@@ -74,23 +74,8 @@ class KnowledgeBase:
     @staticmethod
     def _split_terms(query: str) -> List[str]:
         """把查询拆成若干子串（中文2-4字滑动 + 英文单词），用于子串匹配"""
-        query = (query or "").lower().strip()
-        if not query:
-            return []
-        terms = set()
-        # 英文单词
-        for w in re.findall(r'[a-zA-Z]{3,}', query):
-            terms.add(w)
-        # 中文短语：去掉空格标点后的连续中文用2字和3字滑动
-        chinese_segments = re.findall(r'[\u4e00-\u9fff]{2,}', query)
-        for seg in chinese_segments:
-            if len(seg) <= 4:
-                terms.add(seg)
-            else:
-                for size in (2, 3, 4):
-                    for i in range(len(seg) - size + 1):
-                        terms.add(seg[i:i + size])
-        return [t for t in terms if len(t) >= 2]
+        from . import split_terms
+        return split_terms(query)
 
     def search(self, query: str, top_k: int = 5,
                exclude_player: str = "") -> List[Dict]:
