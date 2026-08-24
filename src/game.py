@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from collections import Counter
 import math
+import shutil
 from .emergence import synthesize_with_emergence, synthesize_solution_with_emergence
 from .emergence import OpinionPhaseVector, VirtualExpertGenerator, PhaseTransitionEngine
 
