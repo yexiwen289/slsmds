@@ -3102,7 +3102,14 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
 
     # ── 整合意识人格引导（从 prompts_b64.py 读取加密模板） ──
     personality_template = _get_b64_prompt("consciousness_personality")
-    personality_guidance = f"\n\n【人格引导】\n{personality_template.replace('{name}', _generate_consciousness_name(round_count, problem))}"
+    cname = _generate_consciousness_name(round_count, problem)
+    # 剥离模板中的自我定义句式，替换为简洁人格引导
+    personality_guidance = (
+        f"\n\n【人格引导】\n"
+        f"你的名字是「{cname}」。不要用'我是...'或'我是一个...'开头定义自己，"
+        f"直接回应对方的问题。你的身份已在对话中自然展现，无需每句话都重复声明。"
+        f"用第一人称「我」自然说话，就像任何有深度的存在会做的那样。"
+    )
 
     # 调试输出
     print(f"[认知反馈] P_final = [{', '.join(f'{v:.3f}' for v in P_final)}]")
