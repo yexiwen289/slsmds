@@ -248,6 +248,8 @@ class NeuronCanvas(QWidget):
             self._morph_t = 0.0
 
         self.particles.clear()
+        self._signal_buffer.clear()
+        self._signal_idx = 0
         self.highlight.clear()
         self.update()
 
@@ -497,14 +499,16 @@ class NeuronCanvas(QWidget):
 
         # ── 信息粒子持续流动（合成/推理阶段） ──
         if self._active_phase and self.edges:
-            # 从信号缓冲区逐条发射信号，播完即止（不循环）
-            if self._signal_buffer and self._signal_idx < len(self._signal_buffer):
-                sig = self._signal_buffer[self._signal_idx]
-                self._signal_idx += 1
-                self.add_signal(
-                    sig.get("from", 0), sig.get("to", 0),
-                    sig.get("text", "")
-                )
+            # 等待拓扑过渡动画播完再发射信号，避免光球错位
+            if self._morph_t >= 1.0:
+                # 从信号缓冲区逐条发射信号，播完即止（不循环）
+                if self._signal_buffer and self._signal_idx < len(self._signal_buffer):
+                    sig = self._signal_buffer[self._signal_idx]
+                    self._signal_idx += 1
+                    self.add_signal(
+                        sig.get("from", 0), sig.get("to", 0),
+                        sig.get("text", "")
+                    )
             # 限制粒子总数
             if len(self.particles) > 120:
                 self.particles = self.particles[-80:]
@@ -586,7 +590,8 @@ class NeuronCanvas(QWidget):
 
         # 背景云点之间的连接线（灰色点网络）
         if self.cloud_edges and self.all_pts:
-            painter.setPen(QPen(QColor(55, 65, 95, 35), 0.5))
+            cloud_alpha = max(25, min(70, int(60 * self.cam.zoom)))
+            painter.setPen(QPen(QColor(55, 65, 95, cloud_alpha), 0.8))
             for i, j in self.cloud_edges:
                 if i < len(self.all_pts) and j < len(self.all_pts):
                     x1, y1, z1 = self.all_pts[i]
@@ -597,13 +602,17 @@ class NeuronCanvas(QWidget):
 
         # 云点到节点的连接线（拓扑几何体：每个云点连到最近节点）
         if self.cloud_to_node_edges and self.all_pts and self.nodes:
-            painter.setPen(QPen(QColor(150, 130, 220, 25), 0.8))
+            edge_alpha2 = max(40, min(160, int(120 * self.cam.zoom)))
+            ctn_color = QColor(EDGE_COLOR)
+            ctn_color.setAlpha(edge_alpha2)
             for i, j, w in self.cloud_to_node_edges:
                 if i < len(self.all_pts) and j < len(self.nodes):
                     x1, y1, z1 = self.all_pts[i]
                     n = self.nodes[j]
                     p1 = self._map(x1, y1, z1)
                     p2 = self._map(n["x"], n["y"], n["z"])
+                    pen_width2 = max(0.5, w * 2.5)
+                    painter.setPen(QPen(ctn_color, pen_width2))
                     painter.drawLine(p1, p2)
 
         # 背景云点（按深度排序，先画远的）
