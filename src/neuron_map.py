@@ -146,6 +146,7 @@ class NeuronCanvas(QWidget):
         self.nodes = []          # [{x, y, z, r, color, label, kind}]
         self.edges = []          # [(i, j, w)]
         self.cloud_edges = []    # 云点之间的连接 [(i, j)]
+        self.cloud_to_node_edges = []  # 云点→最近节点 [(cloud_i, node_j, w)]
         self.particles = []      # [{x1,y1,z1, x2,y2,z2, t, text, color}]
         self.highlight = {}      # node_idx -> expiry_ms
         self.phase_text = ""
@@ -232,6 +233,7 @@ class NeuronCanvas(QWidget):
             self.nodes = new_nodes
             self.edges = new_edges
             self.cloud_edges = new_cloud_edges
+            self.cloud_to_node_edges = [(int(a), int(b), float(w)) for a, b, w in payload.get("cloud_to_node_edges", [])]
             self._morph_t = 1.0
             self._morph_old = None
         else:
@@ -241,6 +243,7 @@ class NeuronCanvas(QWidget):
                 "nodes": new_nodes,
                 "edges": new_edges,
                 "cloud_edges": new_cloud_edges,
+                "cloud_to_node_edges": [(int(a), int(b), float(w)) for a, b, w in payload.get("cloud_to_node_edges", [])],
             }
             self._morph_t = 0.0
 
@@ -307,6 +310,17 @@ class NeuronCanvas(QWidget):
                             seen.add(key)
                             new_cloud_edges.append((i, j))
                 self.cloud_edges = new_cloud_edges
+            # 更新云点到节点的连接（拓扑几何体）
+            if len(new_pts) >= 1 and self.nodes:
+                npts = np.array(new_pts, dtype=np.float64)
+                # 收集所有节点 3D 位置
+                node_pos = np.array([(n["x"], n["y"], n["z"]) for n in self.nodes], dtype=np.float64)
+                new_ctn = []
+                for i, cv in enumerate(npts):
+                    dists = np.sum((node_pos - cv) ** 2, axis=1)
+                    nearest = int(np.argmin(dists))
+                    new_ctn.append((i, nearest, 1.0))
+                self.cloud_to_node_edges = new_ctn
 
         self.update()
 
@@ -396,6 +410,8 @@ class NeuronCanvas(QWidget):
 
         # 云点连接：过渡期间直接用目标值（点数不变，索引一一对应）
         self.cloud_edges = target.get("cloud_edges", [])
+        # 云点到节点连接：过渡期间直接使用目标值
+        self.cloud_to_node_edges = target.get("cloud_to_node_edges", [])
 
     def set_phase(self, text: str, level: int = -1):
         self.phase_text = text
@@ -577,6 +593,17 @@ class NeuronCanvas(QWidget):
                     x2, y2, z2 = self.all_pts[j]
                     p1 = self._map(x1, y1, z1)
                     p2 = self._map(x2, y2, z2)
+                    painter.drawLine(p1, p2)
+
+        # 云点到节点的连接线（拓扑几何体：每个云点连到最近节点）
+        if self.cloud_to_node_edges and self.all_pts and self.nodes:
+            painter.setPen(QPen(QColor(150, 130, 220, 25), 0.8))
+            for i, j, w in self.cloud_to_node_edges:
+                if i < len(self.all_pts) and j < len(self.nodes):
+                    x1, y1, z1 = self.all_pts[i]
+                    n = self.nodes[j]
+                    p1 = self._map(x1, y1, z1)
+                    p2 = self._map(n["x"], n["y"], n["z"])
                     painter.drawLine(p1, p2)
 
         # 背景云点（按深度排序，先画远的）

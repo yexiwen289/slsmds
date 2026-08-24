@@ -2670,7 +2670,7 @@ def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
     if all_vectors:
         import random as _rng
         _rng.seed(42)
-        n_rep = min(20, len(all_vectors))
+        n_rep = min(40, len(all_vectors))
         sample_idx = _rng.sample(range(len(all_vectors)), n_rep)
         for idx in sample_idx:
             nodes_vectors.append(all_vectors[idx].vector.tolist())
@@ -2678,26 +2678,41 @@ def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
             nodes_kinds.append('rep')
 
     # ── 连线：真实专家之间 + 真实专家到采样神经元 ──
-    # 真实专家之间全连接，每个真实专家再连到 2 个虚拟代表
     n_total = len(nodes_vectors)
+    nodes_arr = np.array(nodes_vectors, dtype=np.float64)
     edges = []
     if n_real >= 2:
         for i in range(n_real):
             for j in range(i + 1, n_real):
                 edges.append([i, j, 1.0])
-    # 每个真实专家连到 2 个采样神经元
+    # 真实专家到虚拟代表的余弦相似度连接
     n_rep = max(0, n_total - n_real)
-    for i in range(min(n_real, 4)):
-        for k in range(2):
-            if n_rep > 0:
-                j = n_real + (i * 2 + k) % n_rep
-                edges.append([i, j, 0.7])
+    if n_rep > 0:
+        rep_nodes = nodes_arr[n_real:]
+        real_nodes = nodes_arr[:n_real]
+        # 每个真实专家：连到余弦相似度最高的 3 个虚拟代表
+        for i in range(n_real):
+            sims = real_nodes[i] @ rep_nodes.T
+            norms = np.linalg.norm(real_nodes[i]) * np.linalg.norm(rep_nodes, axis=1)
+            sims = np.abs(sims) / (norms + 1e-10)
+            top_k = np.argsort(sims)[::-1][:3]
+            for j in top_k:
+                edges.append([i, n_real + int(j), float(sims[j])])
 
     # 云点下采样（UDP 数据报限 64KB，最多传 250 个背景点）
     _cloud = []
+    _cloud_to_node = []  # 每个云点 → 最近节点索引
     if all_vectors:
         step = max(1, len(all_vectors) // 250)
         _cloud = [v.vector.tolist() for v in all_vectors[::step]][:250]
+        # 云点到最近节点的余弦相似度连接（拓扑几何体）
+        cloud_arr = np.array(_cloud, dtype=np.float64)
+        for i, cv in enumerate(cloud_arr):
+            sims = cv @ nodes_arr.T
+            norms = np.linalg.norm(cv) * np.linalg.norm(nodes_arr, axis=1)
+            sims = np.abs(sims) / (norms + 1e-10)
+            nearest = int(np.argmax(sims))
+            _cloud_to_node.append([i, nearest, float(sims[nearest])])
 
     event_callback({
         "type": "init",
@@ -2708,6 +2723,7 @@ def _emit_init_neuron_map(event_callback: callable, real_discussions: list,
             "kinds": nodes_kinds,
         },
         "edges": edges,
+        "cloud_to_node_edges": _cloud_to_node,
     })
 
 
