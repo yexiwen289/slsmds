@@ -37,10 +37,10 @@ from PySide6.QtGui import (QPainter, QColor, QPen, QBrush, QFont,
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget,
                                QVBoxLayout, QHBoxLayout, QLabel, QFrame)
 
-# ── 配色（深色主题 · 现代非AI审美） ──
-BG_COLOR = QColor(13, 15, 24)
-PANEL_COLOR = QColor(22, 26, 40)
-GRID_COLOR = QColor(38, 44, 66)
+# ── 配色（纯黑背景 · 无网格） ──
+BG_COLOR = QColor(0, 0, 0)
+PANEL_COLOR = QColor(10, 10, 16)
+GRID_COLOR = QColor(0, 0, 0, 0)
 CLOUD_COLOR = QColor(90, 100, 140, 60)
 REAL_COLOR = QColor(255, 205, 66)     # 真实专家：金色
 REP_COLOR = QColor(86, 196, 255)      # 神经元代表：青色
