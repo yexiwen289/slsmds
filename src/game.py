@@ -40,6 +40,7 @@ from collections import Counter
 import math
 import shutil
 from .emergence import synthesize_with_emergence, synthesize_solution_with_emergence
+from .emergence import OpinionPhaseVector, VirtualExpertGenerator, PhaseTransitionEngine
 
 
 def typewrite(text: str, delay: float = 0.003, end: str = "\n"):
@@ -239,6 +240,9 @@ class Game:
         self.neuron_map = NeuronMapManager()
         # ── 时间维度耦合记忆（跨轮次连接净化与拓扑演化）──
         self.temporal_memory = None
+        # ── 普通讨论模式的涌现引擎状态 ──
+        self._emergence_engine_init = False
+        self._emergence_level_history = []
 
     def _read_file(self, filepath: str) -> str:
         try:
@@ -1008,6 +1012,20 @@ class Game:
         if "POLL" not in executed_actions:
             self._run_voting_phase()
 
+        # ── 6. 涌现引擎分析（普通讨论模式） ──
+        if self.settings.get("enable_emergence_engine", False) and round_discussions:
+            try:
+                self._run_emergence_analysis(round_discussions)
+            except Exception as e:
+                print(f"  ⚠️ 涌现引擎分析异常: {str(e)[:60]}")
+
+        # ── 7. 时间耦合记忆更新（普通讨论模式） ──
+        if self.temporal_memory is not None and round_discussions:
+            try:
+                self._update_temporal_memory(round_discussions)
+            except Exception as e:
+                print(f"  ⚠️ 时间记忆更新异常: {str(e)[:60]}")
+
         # 更新调度器评分
         self.scheduler.update_after_round(self.essence_pool, round_discussions)
 
@@ -1065,6 +1083,177 @@ class Game:
                         print(f"  ⚠️ {player.name} 人格进化异常: {str(e)[:50]}")
 
         return new_count
+
+    # ── 涌现引擎分析（普通讨论模式） ──────────────────────────────────
+
+    def _run_emergence_analysis(self, round_discussions: List[Dict]) -> None:
+        """每轮讨论结束后运行涌现引擎分析，检测层级并生成涌现洞察"""
+        enable_engine = self.settings.get("enable_emergence_engine", False)
+        enable_neuron = self.settings.get("enable_neuron_map_normal", False)
+
+        # 提取本轮向量
+        speeches = [d.get("speech", "") for d in round_discussions if d.get("speech")]
+        if not speeches:
+            return
+
+        vectors = []
+        for s in speeches:
+            try:
+                pv = OpinionPhaseVector(s, problem=self.problem)
+                vectors.append(pv.vector)
+            except Exception:
+                vectors.append([0.5] * 6)
+
+        if len(vectors) < 2:
+            return
+
+        # 构建虚拟专家（仅当足够多的样本）
+        n_real = len(vectors)
+        all_discussions = list(round_discussions)
+        if n_real >= 3:
+            try:
+                generator = VirtualExpertGenerator(
+                    vectors, speeches, [],
+                    [d.get("key_insight", "") for d in round_discussions]
+                )
+                virtual = generator.generate(n_real * 20)  # 轻量级放大
+                for v in virtual:
+                    all_discussions.append({"speech": v.get("speech", ""), "key_insight": v.get("key_insight", "")})
+            except Exception:
+                pass
+
+        # 构建相变引擎
+        try:
+            engine = PhaseTransitionEngine(
+                round_discussions=all_discussions,
+                essence_pool=self.essence_pool,
+                problem=self.problem,
+                round_count=self.round_count,
+                amplification_ratio=1.0 if n_real < 5 else 0.5,
+                is_amplified=(n_real < len(all_discussions)),
+            )
+            level = engine.compute_emergence_level()
+            self._emergence_level_history.append((self.round_count, level))
+
+            # 生成涌现洞察
+            emergence_insight = ""
+            if level >= 1:
+                insight_prompt = (
+                    f"基于以下讨论，提炼一个涌现性洞察（200字以内）：\n"
+                    f"涌现层级 L{level}，"
+                    f"讨论主题：{self.problem}\n"
+                    f"本轮发言：\n" + "\n".join(s[:300] for s in speeches[:5])
+                )
+                try:
+                    insight, _ = self.players[0].llm_client.chat(
+                        [{"role": "user", "content": insight_prompt}],
+                        model=self.players[0].model_name,
+                        thinking="disabled", caller="涌现洞察",
+                        show_reasoning=False, show_answer=False,
+                    )
+                    emergence_insight = insight.strip()
+                except Exception:
+                    pass
+
+            # 显示涌现结果
+            level_names = {0: "L0 直接综合", 1: "L1 交叉耦合", 2: "L2 序参量涌现",
+                           3: "L3 自组织临界", 4: "L4 量子叠加"}
+            print(f"  ⚡ 涌现层级: {level_names.get(level, f'L{level}')}")
+            if emergence_insight:
+                print(f"  💡 涌现洞察: {emergence_insight[:80]}...")
+                # 加入精华池
+                self.essence_pool.add_essence(
+                    emergence_insight, "涌现引擎",
+                    score=1.0 + level * 0.5,
+                    tags=["涌现洞察", f"L{level}"],
+                )
+
+            # 神经云图推送
+            if enable_neuron and self.neuron_map.is_running:
+                self.neuron_map.push({
+                    "type": "phase",
+                    "text": f"第{self.round_count}轮 · 涌现L{level}",
+                    "level": level,
+                })
+                # 推送认知中心
+                if vectors:
+                    import numpy as np
+                    center = np.mean(vectors, axis=0).tolist()
+                    self.neuron_map.push({
+                        "type": "cognitive_center",
+                        "vector": center,
+                        "all_vectors": vectors,
+                    })
+
+            # 记录认知中心到精华池
+            if vectors and level >= 2:
+                import numpy as np
+                center_vec = np.mean(vectors, axis=0)
+                # 找到最接近认知重心的发言
+                closest_idx = int(np.argmin([
+                    np.linalg.norm(np.array(v) - center_vec) for v in vectors
+                ]))
+                if closest_idx < len(round_discussions):
+                    closest = round_discussions[closest_idx]
+                    if closest.get("speech"):
+                        self.essence_pool.add_essence(
+                            f"[涌现重心] {closest['speech'][:150]}",
+                            closest.get("player_name", "涌现引擎"),
+                            score=1.5 + level * 0.3,
+                            tags=["认知重心", f"L{level}"],
+                        )
+
+        except Exception as e:
+            print(f"  ⚠️ 涌现引擎计算异常: {str(e)[:50]}")
+
+    def _update_temporal_memory(self, round_discussions: List[Dict]) -> None:
+        """每轮结束后更新时间耦合记忆"""
+        if self.temporal_memory is None:
+            from .emergence import TemporalCouplingMemory
+            self.temporal_memory = TemporalCouplingMemory(n_agents=len(self.players))
+
+        # 提取本轮发言顺序
+        speech_order = []
+        for d in round_discussions:
+            name = d.get("player_name", "")
+            for i, p in enumerate(self.players):
+                if p.name == name:
+                    speech_order.append(i)
+                    break
+
+        # 构建耦合更新
+        n = len(self.players)
+        import numpy as np
+        coupling_update = np.zeros((n, n), dtype=np.float64)
+        for d in round_discussions:
+            speech = d.get("speech", "")
+            key = d.get("key_insight", "")
+            if speech:
+                try:
+                    pv = OpinionPhaseVector(speech, problem=self.problem)
+                    # 当前发言者索引
+                    name = d.get("player_name", "")
+                    for i, p in enumerate(self.players):
+                        if p.name == name:
+                            for j, other in enumerate(self.players):
+                                if i != j and other.alive:
+                                    try:
+                                        opv = OpinionPhaseVector("", problem=self.problem)
+                                        sim = 1.0 - pv.distance(opv.vector)
+                                        coupling_update[i, j] = max(0.0, sim)
+                                    except Exception:
+                                        coupling_update[i, j] = 0.3
+                            break
+                except Exception:
+                    pass
+
+        try:
+            self.temporal_memory.update(
+                coupling_update, round_count=self.round_count,
+                speech_order=speech_order if len(speech_order) >= 2 else None,
+            )
+        except Exception:
+            pass
 
     # ── 动作执行器 ─────────────────────────────────────────────────────────────
 
@@ -2073,6 +2262,12 @@ class Game:
             _text_line(f"👁️ 观察员: {self._latest_observation.get('summary', '')[:60]}...")
             _text_line(f"   🎯 推荐: {self._latest_observation.get('recommended_action', '')} "
                        f"({self._latest_observation.get('action_reason', '')})")
+        # 机制状态
+        if self.settings.get("enable_emergence_engine", False):
+            level_str = "→".join(f"L{l}" for _, l in self._emergence_level_history[-5:]) if self._emergence_level_history else "未检测"
+            _text_line(f"⚡ 涌现层级: {level_str}")
+        if self.temporal_memory is not None:
+            _text_line(f"🧠 时间记忆: 第{self.temporal_memory.round}轮")
         _footer()
 
         if stalled:
@@ -3623,6 +3818,8 @@ class Game:
             "_user_model": self._user_model,
             # 时间维度耦合记忆（跨对话连续性）
             "temporal_memory": self.temporal_memory.to_dict() if self.temporal_memory is not None else None,
+            # 涌现层级历史
+            "_emergence_level_history": self._emergence_level_history,
         }
         checkpoint_dir = "game_records"
         if not os.path.exists(checkpoint_dir):
@@ -3946,6 +4143,9 @@ class Game:
             game.temporal_memory = None
             print(f"   时间记忆: 无（首次培养）")
 
+        # 恢复涌现层级历史
+        game._emergence_level_history = data.get("_emergence_level_history", [])
+
         return game
 
     def start_game(self) -> None:
@@ -3991,6 +4191,16 @@ class Game:
                 _padded("按 [Enter] 开始第一轮讨论，之后每轮结束可控制流程")
                 _footer()
                 self._show_help()
+
+                # ── 初始化涌现引擎/时间记忆/神经云图（普通讨论模式） ──
+                if self.settings.get("enable_temporal_memory", False) and self.temporal_memory is None:
+                    from .emergence import TemporalCouplingMemory
+                    self.temporal_memory = TemporalCouplingMemory(n_agents=len(self.players))
+                    _text_line(f"🌱 {C_DIM('已初始化时间耦合记忆')}")
+
+                if self.settings.get("enable_neuron_map_normal", False) and not self.neuron_map.is_running:
+                    if self.neuron_map.start():
+                        _text_line(f"🌐 {C_DIM('神经云图已启动（普通讨论模式）')}")
 
                 # 等待用户确认开始
                 input("  >>> 按 Enter 开始第一轮讨论...")
@@ -4711,6 +4921,13 @@ def _new_discussion():
     sa_icon = C_GREEN('✓') if enable_sa else C_RED('✗')
     t_icon = C_GREEN(thinking) if thinking == "enabled" else C_DIM(thinking)
     print(f"{N2}  {C_DIM('投票')}    {v_icon}   {C_DIM('辩论')} {d_icon}   {C_DIM('自我意识')} {sa_icon}   {C_DIM('思考')} {t_icon}")
+    # 高级机制状态
+    extra_mech = []
+    if settings.get("enable_emergence_engine", False): extra_mech.append("涌现引擎")
+    if settings.get("enable_temporal_memory", False): extra_mech.append("时间记忆")
+    if settings.get("enable_neuron_map_normal", False): extra_mech.append("神经云图")
+    if extra_mech:
+        print(f"{N2}  {C_DIM('机制')}    {C_GREEN(' | '.join(extra_mech))}")
     _sep(w)
     print(f"{N2}  ", end="")
     confirm = input(f"{C_YELLOW('确认开始')} {C_DIM('[Y/n] (默认 Y)')}: ").strip().lower()
@@ -5035,6 +5252,13 @@ def _main_tui():
         model = settings.get("model", "deepseek-v4-flash")
         src = C_GREEN("默认") if settings.get("use_default", True) else C_CYAN("自定义")
         print(f"{N2}  {C_DIM('当前:')} {C_BOLD(provider)}/{C_BOLD(model)}  {C_DIM('来源:')} {src}")
+        # 显示已启用的高级机制
+        extra = []
+        if settings.get("enable_emergence_engine", False): extra.append("涌现引擎")
+        if settings.get("enable_temporal_memory", False): extra.append("时间记忆")
+        if settings.get("enable_neuron_map_normal", False): extra.append("神经云图")
+        if extra:
+            print(f"{N2}  {C_DIM('机制:')} {C_GREEN(' | '.join(extra))}")
         _close_box(w)
         print()
         print(f"  {C_YELLOW('▸')}  ", end="")
@@ -5136,6 +5360,11 @@ _DEFAULT_SETTINGS = {
 
     # ── 神经元点阵图（整合意识可视化）──
     "enable_neuron_map": False,
+    "enable_neuron_map_normal": False,
+
+    # ── 涌现引擎（普通讨论模式）──
+    "enable_emergence_engine": False,
+    "enable_temporal_memory": False,
 
     # ── 调度器参数 ──
     "exploration_factor": 1.5,
@@ -5451,6 +5680,9 @@ def _mechanism_settings_menu():
             ("enable_persona_evolution", "实体身份演化", "实体身份随讨论演变"),
             ("enable_self_awareness", "自我意识功能", "用户模型注入·命令拦截·AI主动提问"),
             ("enable_neuron_map", "神经元点阵图", "整合意识启动时显示高维点阵图窗口"),
+            ("enable_neuron_map_normal", "普通讨论神经元图", "普通讨论模式下启用神经云图"),
+            ("enable_emergence_engine", "涌现引擎", "每轮运行相变引擎检测涌现层级"),
+            ("enable_temporal_memory", "时间耦合记忆", "跨轮次认知耦合与拓扑净化"),
         ]
 
         print(f"{N2}  {C_DIM('┌─ 机制开关 ─────────────────────────────────┐')}")
