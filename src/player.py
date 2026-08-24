@@ -18,7 +18,7 @@ from .prompts_b64 import get_prompt as _get_b64_prompt
 
 class Player:
     def __init__(self, name: str, model_name: str, thinking: str = "auto",
-                 show_reasoning: bool = True, show_answer: bool = True,
+                 show_reasoning: bool = False, show_answer: bool = True,
                  llm_client=None):
         self.name = name
         self.alive = True
@@ -944,7 +944,7 @@ class Player:
             name=data["name"],
             model_name=data["model_name"],
             thinking=data.get("thinking", "auto"),
-            show_reasoning=data.get("show_reasoning", True),
+            show_reasoning=data.get("show_reasoning", False),
             show_answer=data.get("show_answer", True),
         )
         player.alive = data.get("alive", True)

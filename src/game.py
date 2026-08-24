@@ -5965,7 +5965,7 @@ def _player_defaults_menu():
         w = _box(C_YELLOW(" 玩家默认配置 "))
 
         thinking = settings.get("thinking", "disabled")
-        show_reasoning = settings.get("show_reasoning", True)
+        show_reasoning = settings.get("show_reasoning", False)
         show_answer = settings.get("show_answer", True)
         default_num = settings.get("default_num_players", 5)
 
@@ -6188,7 +6188,7 @@ def _get_player_configs(num: int, settings: dict) -> list:
     """根据设置生成玩家配置列表"""
     app_cfg = _apply_settings(settings)
     thinking = settings.get("thinking", "disabled")
-    show_reasoning = settings.get("show_reasoning", True)
+    show_reasoning = settings.get("show_reasoning", False)
     show_answer = settings.get("show_answer", True)
     model = app_cfg["model"]
 
