@@ -182,7 +182,7 @@ class Game:
             Player(
                 config["name"], config["model"],
                 thinking=config.get("thinking", DEFAULT_THINKING),
-                show_reasoning=config.get("show_reasoning", True),
+                show_reasoning=config.get("show_reasoning", False),
                 show_answer=config.get("show_answer", True),
                 llm_client=self._llm_client,
             )
@@ -3930,6 +3930,7 @@ class Game:
         # 同步到所有专家
         for p in game.players:
             p.enable_self_awareness = game.enable_self_awareness
+            p.show_reasoning = False  # 强制覆盖检查点保存的旧值
 
         # 恢复设置和机制引擎
         game.settings = _load_settings()
