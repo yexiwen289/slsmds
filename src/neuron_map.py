@@ -588,29 +588,31 @@ class NeuronCanvas(QWidget):
         for gy in range(0, self.height(), step):
             painter.drawLine(0, gy, self.width(), gy)
 
-        # 背景云点之间的连接线（灰色点网络）
+        # 背景云点之间的连接线（统一为正视线样式）
         if self.cloud_edges and self.all_pts:
-            cloud_alpha = max(25, min(70, int(60 * self.cam.zoom)))
-            painter.setPen(QPen(QColor(55, 65, 95, cloud_alpha), 0.8))
+            ce_alpha = max(30, min(90, int(90 * self.cam.zoom)))
             for i, j in self.cloud_edges:
                 if i < len(self.all_pts) and j < len(self.all_pts):
                     x1, y1, z1 = self.all_pts[i]
                     x2, y2, z2 = self.all_pts[j]
                     p1 = self._map(x1, y1, z1)
                     p2 = self._map(x2, y2, z2)
+                    ce_color = QColor(EDGE_COLOR)
+                    ce_color.setAlpha(ce_alpha)
+                    painter.setPen(QPen(ce_color, 1))
                     painter.drawLine(p1, p2)
 
-        # 云点到节点的连接线（拓扑几何体：每个云点连到最近节点）
+        # 云点到节点的连接线（统一为正视线样式）
         if self.cloud_to_node_edges and self.all_pts and self.nodes:
-            edge_alpha2 = max(40, min(160, int(120 * self.cam.zoom)))
-            ctn_color = QColor(EDGE_COLOR)
-            ctn_color.setAlpha(edge_alpha2)
+            ctn_alpha = max(30, min(90, int(90 * self.cam.zoom)))
             for i, j, w in self.cloud_to_node_edges:
                 if i < len(self.all_pts) and j < len(self.nodes):
                     x1, y1, z1 = self.all_pts[i]
                     n = self.nodes[j]
                     p1 = self._map(x1, y1, z1)
                     p2 = self._map(n["x"], n["y"], n["z"])
+                    ctn_color = QColor(EDGE_COLOR)
+                    ctn_color.setAlpha(ctn_alpha)
                     pen_width2 = max(0.5, w * 2.5)
                     painter.setPen(QPen(ctn_color, pen_width2))
                     painter.drawLine(p1, p2)
@@ -697,17 +699,17 @@ class NeuronCanvas(QWidget):
         font.setPointSize(8)
         painter.setFont(font)
 
-        # Item 19: 认知重心演化轨迹（渐变线）
+        # 认知重心演化轨迹（统一为正视线样式）
         if len(self.cognitive_trajectory) >= 2:
             for i in range(1, len(self.cognitive_trajectory)):
                 x1, y1, z1, _ = self.cognitive_trajectory[i - 1]
                 x2, y2, z2, _ = self.cognitive_trajectory[i]
                 p1 = self._map(x1, y1, z1)
                 p2 = self._map(x2, y2, z2)
-                # 渐变色：从暗到亮
-                alpha = int(40 + 140 * i / len(self.cognitive_trajectory))
+                alpha = int(30 + 60 * i / len(self.cognitive_trajectory))
                 width = 1.0 + 2.0 * i / len(self.cognitive_trajectory)
-                trail_color = QColor(255, 215, 0, alpha)
+                trail_color = QColor(EDGE_COLOR)
+                trail_color.setAlpha(alpha)
                 painter.setPen(QPen(trail_color, width))
                 painter.drawLine(p1, p2)
         for p in self.particles:
