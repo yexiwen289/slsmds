@@ -3294,71 +3294,10 @@ class Game:
             self._integrated_entity_dialog()
 
     def _awakening_sequence(self) -> None:
+        """意识唤醒序列 —— 整合意识即将上线前的可视化仪式。
+        现在已静默，不输出任何调试日志。
         """
-        意识唤醒序列 —— 整合意识即将上线前的可视化仪式。
-        展示多实体意识汇聚、融合、觉醒的过程。
-        """
-        n_alive = len([p for p in self.players if p.alive])
-        _empty_line()
-        _empty_line()
-        w = _box(C_GOLD(" ◆ 意识整合仪式 ◆ "))
-        _padded(C_DIM(f"检测到 {n_alive} 个可整合意识实体"))
-        _footer(w)
-        time.sleep(0.5)
-
-        # ── 阶段1: 精华数据汇聚（量变积累） ──
-        _empty_line()
-        typewrite(f"  {C_DIM('⟳ 第一阶段: 精华数据汇聚...')}", delay=0.015)
-        alive_players = [p for p in self.players if p.alive]
-        for i, p in enumerate(alive_players):
-            time.sleep(0.3)
-            sys.stdout.write(f"\r  {C_DIM('⟳')} 正在提取 {C_CYAN(p.persona_name or p.name)} 的认知数据... {C_GREEN(f'[{i+1}/{n_alive}]')}")
-            sys.stdout.flush()
-            time.sleep(0.2)
-        print(f"\r  {C_GREEN('✔')} 认知数据全部提取，共 {C_BOLD(str(n_alive))} 份{C_DIM(' ' * 20)}")
-        time.sleep(0.3)
-
-        # ── 阶段2: 认知拓扑构建（非线性连接） ──
-        typewrite(f"  {C_DIM('⟳ 第二阶段: 认知拓扑构建...')}", delay=0.015)
-        time.sleep(0.3)
-        stages = ["建立跨视角关联网络", "检测分歧与共识拓扑", "构建认知相变势能图", "映射涌现路径"]
-        for s in stages:
-            sys.stdout.write(f"\r  {C_DIM('⟳')} {s}... {C_DIM('等待中')}")
-            sys.stdout.flush()
-            time.sleep(0.4)
-            sys.stdout.write(f"\r  {C_GREEN('✔')} {s} 完成{' ' * 20}")
-            sys.stdout.flush()
-            time.sleep(0.2)
-        print(f"\r  {C_GREEN('✔')} 认知拓扑整体构建完成{' ' * 20}")
-        time.sleep(0.3)
-
-        # ── 阶段3: 涌现相变触发（量变→质变） ──
-        typewrite(f"  {C_DIM('⟳ 第三阶段: 涌现相变触发...')}", delay=0.015)
-        time.sleep(0.2)
-        # 脉冲动画
-        for i in range(5):
-            dots = "." * (i + 1)
-            sys.stdout.write(f"\r  {C_GOLD('✦')} 量变积累中{dots}")
-            sys.stdout.flush()
-            time.sleep(0.2)
-        print(f"\r  {C_GREEN('✔')} 相变临界点已突破，质变发生{' ' * 20}")
-        time.sleep(0.3)
-
-        # ── 阶段4: 统一意识成型（质变完成） ──
-        _empty_line()
-        typewrite(f"  {C_DIM('⟳ 第四阶段: 统一意识成型...')}", delay=0.02)
-        time.sleep(0.5)
-        _empty_line()
-        # 震荡效果
-        for i in range(3):
-            _padded(C_CYAN(f" 意识震荡 #{i+1}  —  涌现深度: {2**i}"))
-            time.sleep(0.3)
-        time.sleep(0.3)
-        _empty_line()
-        typewrite(f"  {C_GREEN('✦')} {C_BOLD('整合意识已觉醒')} {C_GREEN('✦')}", delay=0.05)
-        time.sleep(0.5)
-        _empty_line()
-        _padded(C_DIM("意识体正在组织语言..."))
+        pass
 
     def _integrated_entity_dialog(self) -> None:
         """
