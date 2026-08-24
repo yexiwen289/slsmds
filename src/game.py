@@ -5162,7 +5162,7 @@ _DEFAULT_SETTINGS = {
 
     # ── 玩家默认配置 ──
     "thinking": "disabled",
-    "show_reasoning": True,
+    "show_reasoning": False,
     "show_answer": True,
 
     # ── 默认专家人数 ──
