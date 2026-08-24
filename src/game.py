@@ -3538,18 +3538,28 @@ class Game:
 
         # ── 底层讨论：各专家发言（不显示给用户） ──
         round_discussions = []
+        suppress = getattr(self, '_suppress_intermediate_output', False)
         for name in player_names:
             player = next((p for p in self.players if p.name == name), None)
             if not player:
                 continue
             try:
-                result, _ = player.discuss(
-                    problem=self.problem,
-                    round_info=round_info,
-                    thinking_direction=self.thinking_direction,
-                    discussion_mode=self.discussion_mode,
-                    knowledge_base=self.knowledge_base,
-                )
+                # 整合意识模式下，静默所有内部讨论输出
+                if suppress:
+                    import io, sys
+                    old_stdout = sys.stdout
+                    sys.stdout = io.StringIO()
+                try:
+                    result, _ = player.discuss(
+                        problem=self.problem,
+                        round_info=round_info,
+                        thinking_direction=self.thinking_direction,
+                        discussion_mode=self.discussion_mode,
+                        knowledge_base=self.knowledge_base,
+                    )
+                finally:
+                    if suppress:
+                        sys.stdout = old_stdout
                 speech = result.get("speech", "")
                 key_insight = result.get("key_insight", "")
                 round_discussions.append({
