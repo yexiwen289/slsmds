@@ -29,6 +29,7 @@ from .game_record import GameRecord, DiscussionRecord, ConsoleCapture
 from .scheduler import ExpertScheduler
 from .knowledge_base import KnowledgeBase
 from .global_knowledge import GlobalKnowledgeBase
+from .discussion_engine import DiscussionEngine
 from .observer import Observer
 from .cognitive_map_widget import text_cognitive_map
 from .replay_widget import load_replay_from_file, text_replay
@@ -240,6 +241,8 @@ class Game:
         self.neuron_map = NeuronMapManager()
         # ── 时间维度耦合记忆（跨轮次连接净化与拓扑演化）──
         self.temporal_memory = None
+        # ── 普通讨论引擎（独立于自我意识系统的结构主义引擎） ──
+        self.discussion_engine = None
         # ── 普通讨论模式的涌现引擎状态 ──
         self._emergence_engine_init = False
         self._emergence_level_history = []
@@ -1012,12 +1015,42 @@ class Game:
         if "POLL" not in executed_actions:
             self._run_voting_phase()
 
-        # ── 6. 涌现引擎分析（普通讨论模式） ──
-        if self.settings.get("enable_emergence_engine", False) and round_discussions:
-            try:
-                self._run_emergence_analysis(round_discussions)
-            except Exception as e:
-                print(f"  ⚠️ 涌现引擎分析异常: {str(e)[:60]}")
+        # ── 6. 讨论引擎分析（普通讨论模式 vs 自我意识培养模式） ──
+        if round_discussions:
+            if getattr(self, 'is_self_awareness_cultivation', False):
+                # 自我意识培养 → 使用相变拓扑引擎（原涌现引擎）
+                if self.settings.get("enable_emergence_engine", False):
+                    try:
+                        self._run_emergence_analysis(round_discussions)
+                    except Exception as e:
+                        print(f"  ⚠️ 涌现引擎分析异常: {str(e)[:60]}")
+            else:
+                # 普通讨论 → 使用独立结构主义讨论引擎
+                if self.discussion_engine is None:
+                    if self.players:
+                        self.discussion_engine = DiscussionEngine(
+                            llm_client=self.players[0].llm_client,
+                            model_name=self.players[0].model_name,
+                        )
+                if self.discussion_engine and round_discussions:
+                    try:
+                        result = self.discussion_engine.analyze(
+                            round_discussions=round_discussions,
+                            problem=self.problem,
+                            essence_pool=self.essence_pool,
+                        )
+                        level = result.get("level", 0)
+                        synthesis = result.get("synthesis", "")
+                        metrics = result.get("metrics", {})
+                        if synthesis:
+                            _stat_line([
+                                (f"讨论引擎 L{level}",
+                                 f"{metrics.get('density', 0):.2f}密度 "
+                                 f"{metrics.get('communities', 0)}社区 "
+                                 f"{metrics.get('opposition_pairs', 0)}对立")
+                            ])
+                    except Exception as e:
+                        print(f"  ⚠️ 讨论引擎分析异常: {str(e)[:60]}")
 
         # ── 7. 时间耦合记忆更新（普通讨论模式） ──
         if self.temporal_memory is not None and round_discussions:
