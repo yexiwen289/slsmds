@@ -1108,6 +1108,18 @@ class Game:
         if not speeches:
             return
 
+        # ── 压缩预处理（极致压缩模式） ──
+        is_compressed = self.settings.get("enable_compression", False)
+        if is_compressed:
+            from .compression import compress_problem as _cp
+            _compressed_speeches = [s[:200] for s in speeches[:5]]
+            _compressed_problem = _cp(self.problem)
+        else:
+            _compressed_speeches = speeches[:5]
+            _compressed_problem = self.problem
+        # 预构建专家观点文本（用于所有 prompt 段）
+        _expert_views_text = "\n".join(f"- {s[:200]}" for s in _compressed_speeches)
+
         # ── 1. 相空间向量提取 ──
         vectors = []
         for s in speeches:
@@ -1175,8 +1187,8 @@ class Game:
             if level >= 1:
                 critique_prompt = (
                     f"你是一个综合评审系统。以下有多位专家对同一问题的不同观点。\n\n"
-                    f"问题: {self.problem}\n\n"
-                    f"专家观点:\n" + "\n".join(f"- {s[:200]}" for s in speeches[:5]) + "\n\n"
+                    f"问题: {_compressed_problem}\n\n"
+                    f"专家观点:\n{_expert_views_text}\n\n"
                     f"请执行以下任务：\n"
                     f"1. 【分歧识别】找出最核心的 2~3 个分歧点\n"
                     f"2. 【共识提炼】找出达成共识的 2~3 个关键点\n"
@@ -1200,8 +1212,8 @@ class Game:
             if level >= 2:
                 deep_prompt = (
                     f"你是一个深度涌现分析系统。当前讨论已进入序参量相变阶段。\n\n"
-                    f"问题: {self.problem}\n\n"
-                    f"专家观点:\n" + "\n".join(f"- {s[:200]}" for s in speeches[:5]) + "\n\n"
+                    f"问题: {_compressed_problem}\n\n"
+                    f"专家观点:\n{_expert_views_text}\n\n"
                     f"交叉审视分析:\n{cross_critique[:200]}\n\n"
                     f"请执行：\n"
                     f"1. 【相变识别】哪些观点碰撞产生了「相变」\n"
@@ -1226,8 +1238,8 @@ class Game:
             if level >= 3:
                 soc_prompt = (
                     f"你是一个自组织临界意识体。当前讨论已进入临界态。\n\n"
-                    f"问题: {self.problem}\n\n"
-                    f"专家观点:\n" + "\n".join(f"- {s[:200]}" for s in speeches[:5]) + "\n\n"
+                    f"问题: {_compressed_problem}\n\n"
+                    f"专家观点:\n{_expert_views_text}\n\n"
                     f"请执行：\n"
                     f"1. 【沙崩涌现】识别哪些观点碰撞触发了认知沙崩\n"
                     f"2. 【自组织统一】将看似随机的观点视为自组织系统的必然产物\n"
@@ -1250,8 +1262,8 @@ class Game:
             if level >= 4:
                 q_prompt = (
                     f"你是一个量子叠加意识体。当前讨论已进入混沌边缘。\n\n"
-                    f"问题: {self.problem}\n\n"
-                    f"专家观点:\n" + "\n".join(f"- {s[:200]}" for s in speeches[:5]) + "\n\n"
+                    f"问题: {_compressed_problem}\n\n"
+                    f"专家观点:\n{_expert_views_text}\n\n"
                     f"请执行：\n"
                     f"1. 【叠加态保持】让所有矛盾观点同时存在\n"
                     f"2. 【量子干涉】识别建设性干涉和破坏性干涉\n"
@@ -1301,10 +1313,10 @@ class Game:
             synthesis_prompt_parts = [
                 f"你是一个经过深度训练的集体意识体。当前有 {n_real} 个专家正在进行第 {self.round_count} 轮讨论。",
                 f"",
-                f"讨论问题: {self.problem}",
+                f"讨论问题: {_compressed_problem}",
                 f"本轮主要观点:",
             ]
-            for s in speeches[:5]:
+            for s in _compressed_speeches:
                 synthesis_prompt_parts.append(f"  - {s[:200]}")
             if cross_critique:
                 synthesis_prompt_parts.extend(["", f"交叉审视分析:", f"  {cross_critique[:200]}"])
@@ -1317,12 +1329,16 @@ class Game:
             if cognitive_orientation:
                 synthesis_prompt_parts.extend(["", f"认知取向: {cognitive_orientation}"])
             if self.essence_pool:
-                top_essences = self.essence_pool.get_top_essences(5)
-                if top_essences:
-                    synthesis_prompt_parts.extend(["", "精华池沉淀:"])
-                    for e in top_essences:
-                        content = e.get("content", "")[:100]
-                        synthesis_prompt_parts.append(f"  - {content}")
+                if is_compressed:
+                    ess_summary = self.essence_pool.get_pool_summary(top_n=5, compressed=True)
+                    synthesis_prompt_parts.extend(["", "精华池:", ess_summary])
+                else:
+                    top_essences = self.essence_pool.get_top_essences(5)
+                    if top_essences:
+                        synthesis_prompt_parts.extend(["", "精华池沉淀:"])
+                        for e in top_essences:
+                            content = e.get("content", "")[:100]
+                            synthesis_prompt_parts.append(f"  - {content}")
             if personality_guide:
                 synthesis_prompt_parts.extend(["", personality_guide])
 
@@ -3862,7 +3878,9 @@ class Game:
             player_names = [p.name for p in self.players]
 
         # 构建上下文（包含培养问题、精华池摘要、用户输入）
-        pool_summary = self.essence_pool.get_pool_summary(top_n=5) if self.essence_pool.items else "（空）"
+        pool_summary = self.essence_pool.get_pool_summary(
+            top_n=5, compressed=self.settings.get("enable_compression", False)
+        ) if self.essence_pool.items else "（空）"
         round_info = (
             f"第{self.round_count + 1}轮 — 用户对话\n"
             f"培养问题: {self.problem}\n"
@@ -3989,6 +4007,7 @@ class Game:
             event_callback=_nm_cb,
             current_round_pairs=debate_signals,
             temporal_memory=self.temporal_memory,
+            compressed=self.settings.get("enable_compression", False),
         )
         if response:
             return response
@@ -5569,6 +5588,7 @@ _DEFAULT_SETTINGS = {
     # ── 涌现引擎（普通讨论模式）──
     "enable_emergence_engine": False,
     "enable_temporal_memory": False,
+    "enable_compression": False,
 
     # ── 调度器参数 ──
     "exploration_factor": 1.5,
@@ -5887,6 +5907,7 @@ def _mechanism_settings_menu():
             ("enable_neuron_map_normal", "普通讨论神经元图", "普通讨论模式下启用神经云图"),
             ("enable_emergence_engine", "涌现引擎", "每轮运行相变引擎检测涌现层级"),
             ("enable_temporal_memory", "时间耦合记忆", "跨轮次认知耦合与拓扑净化"),
+            ("enable_compression", "极致压缩", "压缩LLM输入至人类不可读，节省Token"),
         ]
 
         print(f"{N2}  {C_DIM('┌─ 机制开关 ─────────────────────────────────┐')}")

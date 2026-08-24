@@ -356,12 +356,18 @@ class EssencePool:
                 result.extend(self.get_essence_tree(child.id))
         return result
 
-    def get_pool_summary(self, top_n: int = 5) -> str:
+    def get_pool_summary(self, top_n: int = 5, compressed: bool = False) -> str:
         """生成精华池摘要文本（用于大模型上下文）"""
         if not self.items:
-            return "（精华池为空，尚无已提炼的见解）"
+            return "（空）" if compressed else "（精华池为空，尚无已提炼的见解）"
 
         top = self.get_top_essences(top_n)
+        if compressed:
+            from .compression import compress_essence_pool
+            return compress_essence_pool(
+                [e.to_dict() for e in top], max_items=top_n
+            )
+
         lines = [
             "=" * 50,
             "📋 精华池当前状态（按评分排序）",

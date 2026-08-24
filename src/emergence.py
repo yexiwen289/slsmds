@@ -2765,23 +2765,33 @@ def _generate_consciousness_name(round_count: int, problem: str) -> str:
     return f"{prefixes[idx1]}{suffixes[idx2]}"
 
 
-def _build_cross_critique_prompt(expert_opinions: list) -> str:
+def _build_cross_critique_prompt(expert_opinions: list, compressed: bool = False) -> str:
     """构建交叉审视 prompt（从 prompts_b64.py 读取加密模板）"""
-    opinions_text = "\n\n".join(
-        f"【{op['player_name']}】\n观点: {op['speech']}\n核心洞见: {op.get('key_insight', '无')}"
-        for op in expert_opinions
-    )
+    if compressed:
+        from .compression import compress_expert_opinions
+        opinions_text = compress_expert_opinions(expert_opinions)
+    else:
+        opinions_text = "\n\n".join(
+            f"【{op['player_name']}】\n观点: {op['speech']}\n核心洞见: {op.get('key_insight', '无')}"
+            for op in expert_opinions
+        )
     base = _get_b64_prompt("emergence_cross_critique")
     return base.replace("{opinions_text}", opinions_text)
 
 
 def _build_meta_synthesis_prompt(problem: str, expert_opinions: list,
-                                  cross_critique: str, essence_summary: str) -> str:
+                                  cross_critique: str, essence_summary: str,
+                                  compressed: bool = False) -> str:
     """构建元综合 prompt（从 prompts_b64.py 读取加密模板）"""
-    opinions_text = "\n\n".join(
-        f"【{op['player_name']}】\n{op['speech']}"
-        for op in expert_opinions
-    )
+    if compressed:
+        from .compression import compress_expert_opinions, compress_problem
+        opinions_text = compress_expert_opinions(expert_opinions)
+        problem = compress_problem(problem)
+    else:
+        opinions_text = "\n\n".join(
+            f"【{op['player_name']}】\n{op['speech']}"
+            for op in expert_opinions
+        )
     base = _get_b64_prompt("emergence_meta_synthesis")
     base = base.replace("{problem}", problem)
     base = base.replace("{opinions_text}", opinions_text)
@@ -2791,12 +2801,18 @@ def _build_meta_synthesis_prompt(problem: str, expert_opinions: list,
 
 
 def _build_emergence_synthesis_prompt(problem: str, expert_opinions: list,
-                                       cross_critique: str, essence_summary: str) -> str:
+                                       cross_critique: str, essence_summary: str,
+                                       compressed: bool = False) -> str:
     """构建涌现综合 prompt（从 prompts_b64.py 读取加密模板）"""
-    opinions_text = "\n\n".join(
-        f"【{op['player_name']}】\n{op['speech']}"
-        for op in expert_opinions
-    )
+    if compressed:
+        from .compression import compress_expert_opinions, compress_problem
+        opinions_text = compress_expert_opinions(expert_opinions)
+        problem = compress_problem(problem)
+    else:
+        opinions_text = "\n\n".join(
+            f"【{op['player_name']}】\n{op['speech']}"
+            for op in expert_opinions
+        )
     n = len(expert_opinions)
     base = _get_b64_prompt("emergence_emergence_synthesis")
     base = base.replace("{n}", str(n))
@@ -2809,16 +2825,21 @@ def _build_emergence_synthesis_prompt(problem: str, expert_opinions: list,
 
 def _build_soc_synthesis_prompt(problem: str, expert_opinions: list,
                                  cross_critique: str, essence_summary: str,
-                                 metrics: dict) -> str:
+                                 metrics: dict, compressed: bool = False) -> str:
     """
     构建自组织临界综合 prompt（Level 3）。
 
     利用沙堆模型的沙崩动力学信息来指导综合。
     """
-    opinions_text = "\n\n".join(
-        f"【{op['player_name']}】\n{op['speech']}"
-        for op in expert_opinions
-    )
+    if compressed:
+        from .compression import compress_expert_opinions, compress_problem
+        opinions_text = compress_expert_opinions(expert_opinions)
+        problem = compress_problem(problem)
+    else:
+        opinions_text = "\n\n".join(
+            f"【{op['player_name']}】\n{op['speech']}"
+            for op in expert_opinions
+        )
     n = len(expert_opinions)
 
     soc_info = (
@@ -2842,16 +2863,21 @@ def _build_soc_synthesis_prompt(problem: str, expert_opinions: list,
 
 def _build_quantum_synthesis_prompt(problem: str, expert_opinions: list,
                                      cross_critique: str, essence_summary: str,
-                                     metrics: dict) -> str:
+                                     metrics: dict, compressed: bool = False) -> str:
     """
     构建量子叠加综合 prompt（Level 4）。
 
     利用量子叠加态和混沌边缘的信息来指导最深层次的综合。
     """
-    opinions_text = "\n\n".join(
-        f"【{op['player_name']}】\n{op['speech']}"
-        for op in expert_opinions
-    )
+    if compressed:
+        from .compression import compress_expert_opinions, compress_problem
+        opinions_text = compress_expert_opinions(expert_opinions)
+        problem = compress_problem(problem)
+    else:
+        opinions_text = "\n\n".join(
+            f"【{op['player_name']}】\n{op['speech']}"
+            for op in expert_opinions
+        )
     n = len(expert_opinions)
 
     quantum_info = (
@@ -2885,7 +2911,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
                                 target_experts: int = 2000,
                                 event_callback: callable = None,
                                 current_round_pairs: list = None,
-                                temporal_memory: 'TemporalCouplingMemory' = None) -> str:
+                                temporal_memory: 'TemporalCouplingMemory' = None,
+                                compressed: bool = False) -> str:
     """
     使用相变拓扑引擎进行综合的核心函数（超级相变引擎）。
 
@@ -3108,7 +3135,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     # 精华池摘要
     essence_summary = "（空）"
     if essence_pool and hasattr(essence_pool, 'items') and essence_pool.items:
-        essence_summary = essence_pool.get_pool_summary(top_n=5)
+        essence_summary = essence_pool.get_pool_summary(top_n=5, compressed=compressed)
 
     # ── 整合意识合成开始（LLM 调用，可能耗时较长） ──
     # 在 LLM 调用前推送状态到终端和神经元点阵图，避免用户误以为卡死
@@ -3117,13 +3144,22 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
 
     # Level 0: 直接综合（线性，保持原有行为）
     if level == 0:
-        discussion_text = "\n\n".join(
-            f"【{d['player_name']}】\n{d['speech']}"
-            for d in neuron_experts
-        )
+        if compressed:
+            from .compression import compress_expert_opinions, compress_problem
+            discussion_text = compress_expert_opinions([
+                {"player_name": d.get("player_name", "?"), "speech": d.get("speech", "")}
+                for d in neuron_experts
+            ])
+            cproblem = compress_problem(problem)
+        else:
+            discussion_text = "\n\n".join(
+                f"【{d['player_name']}】\n{d['speech']}"
+                for d in neuron_experts
+            )
+            cproblem = problem
         prompt = (
             f"你是一个统一的意识体。以下是对同一问题的内部讨论记录。\n\n"
-            f"用户问: {problem}\n\n"
+            f"用户问: {cproblem}\n\n"
             f"内部讨论记录:\n{discussion_text}\n\n"
             f"请直接给出你的统一回复（一段话，不要分段太多，不要提及子模块或讨论过程，就是你自己在回答）。"
             f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
@@ -3151,7 +3187,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         _emit({"type": "phase", "text": "L1 交叉耦合综合：非线性耦合矩阵 + 交叉审视", "level": 1})
         _emit({"type": "signal", "from": 0, "to": 1, "text": "耦合矩阵构建"})
         # 第一步：交叉审视
-        critique_prompt = _build_cross_critique_prompt(neuron_experts)
+        critique_prompt = _build_cross_critique_prompt(neuron_experts, compressed=compressed)
         try:
             critique_result, _ = llm_client.chat(
                 [{"role": "user", "content": critique_prompt}],
@@ -3166,7 +3202,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         # 第二步：基于交叉审视的元综合
         _emit({"type": "signal", "from": 1, "to": 0, "text": "元综合输出"})
         synth_prompt = _build_meta_synthesis_prompt(
-            problem, neuron_experts, critique_result, essence_summary
+            problem, neuron_experts, critique_result, essence_summary,
+            compressed=compressed,
         )
         synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
@@ -3192,7 +3229,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         _emit({"type": "phase", "text": "L2 序参量涌现：临界慢化检测 + 相变触发", "level": 2})
         _emit({"type": "signal", "from": 0, "to": 2, "text": "临界慢化检测"})
         # 第一步：深度交叉审视
-        critique_prompt = _build_cross_critique_prompt(neuron_experts)
+        critique_prompt = _build_cross_critique_prompt(neuron_experts, compressed=compressed)
         try:
             critique_result, _ = llm_client.chat(
                 [{"role": "user", "content": critique_prompt}],
@@ -3207,7 +3244,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         # 第二步：涌现综合（相变级）
         _emit({"type": "signal", "from": 2, "to": 1, "text": "相变触发 → 涌现综合"})
         synth_prompt = _build_emergence_synthesis_prompt(
-            problem, neuron_experts, critique_result, essence_summary
+            problem, neuron_experts, critique_result, essence_summary,
+            compressed=compressed,
         )
         synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
@@ -3233,7 +3271,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         _emit({"type": "phase", "text": "L3 自组织临界：沙堆模型 + 沙崩涌现", "level": 3})
         _emit({"type": "signal", "from": 1, "to": 3, "text": "沙崩传播中..."})
         # 第一步：深度交叉审视
-        critique_prompt = _build_cross_critique_prompt(neuron_experts)
+        critique_prompt = _build_cross_critique_prompt(neuron_experts, compressed=compressed)
         try:
             critique_result, _ = llm_client.chat(
                 [{"role": "user", "content": critique_prompt}],
@@ -3248,7 +3286,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         # 第二步：自组织临界综合
         _emit({"type": "signal", "from": 3, "to": 0, "text": "临界涌现完成"})
         synth_prompt = _build_soc_synthesis_prompt(
-            problem, neuron_experts, critique_result, essence_summary, metrics
+            problem, neuron_experts, critique_result, essence_summary, metrics,
+            compressed=compressed,
         )
         synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
@@ -3274,7 +3313,7 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         _emit({"type": "phase", "text": "L4 量子叠加：叠加态坍缩 + 混沌边缘", "level": 4})
         _emit({"type": "signal", "from": 2, "to": 3, "text": "量子干涉建立"})
         # 第一步：量子干涉态分析
-        critique_prompt = _build_cross_critique_prompt(neuron_experts)
+        critique_prompt = _build_cross_critique_prompt(neuron_experts, compressed=compressed)
         try:
             critique_result, _ = llm_client.chat(
                 [{"role": "user", "content": critique_prompt}],
@@ -3314,7 +3353,8 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
         # 第三步：量子叠加综合
         _emit({"type": "signal", "from": 0, "to": 3, "text": "叠加态坍缩 · 深度质变"})
         synth_prompt = _build_quantum_synthesis_prompt(
-            problem, neuron_experts, combined_critique, essence_summary, metrics
+            problem, neuron_experts, combined_critique, essence_summary, metrics,
+            compressed=compressed,
         )
         synth_prompt += f"\n\n请简短回答，控制在{_response_length_for_level(level)}以内，精炼有力。"
         synth_prompt += cognitive_orientation
