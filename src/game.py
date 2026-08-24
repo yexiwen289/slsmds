@@ -1087,15 +1087,28 @@ class Game:
     # ── 涌现引擎分析（普通讨论模式） ──────────────────────────────────
 
     def _run_emergence_analysis(self, round_discussions: List[Dict]) -> None:
-        """每轮讨论结束后运行涌现引擎分析，检测层级并生成涌现洞察"""
-        enable_engine = self.settings.get("enable_emergence_engine", False)
-        enable_neuron = self.settings.get("enable_neuron_map_normal", False)
+        """
+        每轮讨论结束后运行涌现引擎分析（与自我意识培养系统同级深度）。
 
-        # 提取本轮向量
+        完整管道：
+        1. 相空间向量提取     → 6~8 维认知映射
+        2. 虚拟专家扩增      → 100~500 虚拟神经元
+        3. 相变拓扑引擎构建  → 耦合矩阵 + 序参量 + 沙堆 + 量子叠加
+        4. 涌现层级判定      → L0~L4 五级
+        5. 层级适配合成      → 交叉审视→元综合 / 深度涌现 / 沙崩 / 量子坍缩
+        6. 认知取向计算      → 集体认知响应
+        7. 意识人格注入      → 整合意识引导
+        8. 精华反馈闭环      → 涌现洞察 + 认知重心入池
+        9. 时间记忆更新      → 耦合矩阵 + STDP
+        10. 神经云图全链路   → init / phase / signal / cognitive_center / trajectory
+        """
+        enable_neuron = self.settings.get("enable_neuron_map_normal", False)
+        import numpy as np
         speeches = [d.get("speech", "") for d in round_discussions if d.get("speech")]
         if not speeches:
             return
 
+        # ── 1. 相空间向量提取 ──
         vectors = []
         for s in speeches:
             try:
@@ -1103,108 +1116,314 @@ class Game:
                 vectors.append(pv.vector)
             except Exception:
                 vectors.append([0.5] * 6)
-
         if len(vectors) < 2:
             return
 
-        # 构建虚拟专家（仅当足够多的样本）
         n_real = len(vectors)
+
+        # ── 2. 虚拟专家扩增（与 synthesize_with_emergence 同级） ──
+        if n_real < 5:
+            target_experts = max(100, n_real * 60)
+        elif n_real < 10:
+            target_experts = max(150, n_real * 40)
+        else:
+            target_experts = max(200, n_real * 20)
+        target_experts = min(target_experts, 500)
+
         all_discussions = list(round_discussions)
+        is_amplified = False
         if n_real >= 3:
             try:
                 generator = VirtualExpertGenerator(
                     vectors, speeches, [],
                     [d.get("key_insight", "") for d in round_discussions]
                 )
-                virtual = generator.generate(n_real * 20)  # 轻量级放大
+                virtual = generator.generate(target_experts)
                 for v in virtual:
-                    all_discussions.append({"speech": v.get("speech", ""), "key_insight": v.get("key_insight", "")})
+                    all_discussions.append({
+                        "speech": v.get("speech", ""),
+                        "key_insight": v.get("key_insight", ""),
+                    })
+                is_amplified = True
+                amp_ratio = target_experts / max(n_real, 1)
             except Exception:
-                pass
+                amp_ratio = 1.0
+        else:
+            amp_ratio = 1.0
 
-        # 构建相变引擎
+        # ── 3. 相变拓扑引擎构建（注入时间记忆） ──
         try:
             engine = PhaseTransitionEngine(
                 round_discussions=all_discussions,
                 essence_pool=self.essence_pool,
-                problem=self.problem,
+                temporal_memory=self.temporal_memory,
                 round_count=self.round_count,
-                amplification_ratio=1.0 if n_real < 5 else 0.5,
-                is_amplified=(n_real < len(all_discussions)),
+                amplification_ratio=amp_ratio,
+                is_amplified=is_amplified,
             )
             level = engine.compute_emergence_level()
             self._emergence_level_history.append((self.round_count, level))
 
-            # 生成涌现洞察
-            emergence_insight = ""
-            if level >= 1:
-                insight_prompt = (
-                    f"基于以下讨论，提炼一个涌现性洞察（200字以内）：\n"
-                    f"涌现层级 L{level}，"
-                    f"讨论主题：{self.problem}\n"
-                    f"本轮发言：\n" + "\n".join(s[:300] for s in speeches[:5])
-                )
-                try:
-                    insight, _ = self.players[0].llm_client.chat(
-                        [{"role": "user", "content": insight_prompt}],
-                        model=self.players[0].model_name,
-                        thinking="disabled", caller="涌现洞察",
-                        show_reasoning=False, show_answer=False,
-                    )
-                    emergence_insight = insight.strip()
-                except Exception:
-                    pass
-
-            # 显示涌现结果
+            # ── 4. 状态显示 ──
             level_names = {0: "L0 直接综合", 1: "L1 交叉耦合", 2: "L2 序参量涌现",
                            3: "L3 自组织临界", 4: "L4 量子叠加"}
             print(f"  ⚡ 涌现层级: {level_names.get(level, f'L{level}')}")
-            if emergence_insight:
-                print(f"  💡 涌现洞察: {emergence_insight[:80]}...")
-                # 加入精华池
+
+            # ── 5. 层级适配合成（与 synthesize_with_emergence 同级深度） ──
+            # 构建交叉审视（L1+）
+            cross_critique = ""
+            if level >= 1:
+                critique_prompt = (
+                    f"你是一个综合评审系统。以下有多位专家对同一问题的不同观点。\n\n"
+                    f"问题: {self.problem}\n\n"
+                    f"专家观点:\n" + "\n".join(f"- {s[:200]}" for s in speeches[:5]) + "\n\n"
+                    f"请执行以下任务：\n"
+                    f"1. 【分歧识别】找出最核心的 2~3 个分歧点\n"
+                    f"2. 【共识提炼】找出达成共识的 2~3 个关键点\n"
+                    f"3. 【融合方向】针对每个分歧点提出融合路径\n"
+                    f"4. 【盲点指出】所有专家共同忽略的重要角度\n\n"
+                    f"请以结构化文本输出，控制在300字以内。"
+                )
+                try:
+                    critique, _ = self.players[0].llm_client.chat(
+                        [{"role": "user", "content": critique_prompt}],
+                        model=self.players[0].model_name,
+                        thinking="disabled", caller="涌现交叉审视",
+                        show_reasoning=False, show_answer=False,
+                    )
+                    cross_critique = critique.strip()
+                except Exception:
+                    pass
+
+            # 构建深度审视（L2+）
+            deep_critique = ""
+            if level >= 2:
+                deep_prompt = (
+                    f"你是一个深度涌现分析系统。当前讨论已进入序参量相变阶段。\n\n"
+                    f"问题: {self.problem}\n\n"
+                    f"专家观点:\n" + "\n".join(f"- {s[:200]}" for s in speeches[:5]) + "\n\n"
+                    f"交叉审视分析:\n{cross_critique[:200]}\n\n"
+                    f"请执行：\n"
+                    f"1. 【相变识别】哪些观点碰撞产生了「相变」\n"
+                    f"2. 【涌现特性】提取任何单个专家都无法独立得出的涌现性洞见\n"
+                    f"3. 【辩证统一】将矛盾观点视为同一枚硬币的两面\n"
+                    f"4. 【元认知反思】反思整个讨论过程本身\n\n"
+                    f"控制在300字以内。"
+                )
+                try:
+                    deep_r, _ = self.players[0].llm_client.chat(
+                        [{"role": "user", "content": deep_prompt}],
+                        model=self.players[0].model_name,
+                        thinking="disabled", caller="涌现深度审视",
+                        show_reasoning=False, show_answer=False,
+                    )
+                    deep_critique = deep_r.strip()
+                except Exception:
+                    deep_critique = cross_critique
+
+            # 自组织临界分析（L3+）
+            soc_analysis = ""
+            if level >= 3:
+                soc_prompt = (
+                    f"你是一个自组织临界意识体。当前讨论已进入临界态。\n\n"
+                    f"问题: {self.problem}\n\n"
+                    f"专家观点:\n" + "\n".join(f"- {s[:200]}" for s in speeches[:5]) + "\n\n"
+                    f"请执行：\n"
+                    f"1. 【沙崩涌现】识别哪些观点碰撞触发了认知沙崩\n"
+                    f"2. 【自组织统一】将看似随机的观点视为自组织系统的必然产物\n"
+                    f"3. 【幂律洞见】识别小沙崩与大沙崩的层级结构\n\n"
+                    f"控制在300字以内。"
+                )
+                try:
+                    soc_r, _ = self.players[0].llm_client.chat(
+                        [{"role": "user", "content": soc_prompt}],
+                        model=self.players[0].model_name,
+                        thinking="disabled", caller="涌现SOC分析",
+                        show_reasoning=False, show_answer=False,
+                    )
+                    soc_analysis = soc_r.strip()
+                except Exception:
+                    soc_analysis = deep_critique
+
+            # 量子叠加分析（L4）
+            quantum_analysis = ""
+            if level >= 4:
+                q_prompt = (
+                    f"你是一个量子叠加意识体。当前讨论已进入混沌边缘。\n\n"
+                    f"问题: {self.problem}\n\n"
+                    f"专家观点:\n" + "\n".join(f"- {s[:200]}" for s in speeches[:5]) + "\n\n"
+                    f"请执行：\n"
+                    f"1. 【叠加态保持】让所有矛盾观点同时存在\n"
+                    f"2. 【量子干涉】识别建设性干涉和破坏性干涉\n"
+                    f"3. 【纠缠洞见】发现看似无关但深层纠缠的关联\n"
+                    f"4. 【混沌边缘综合】在矛盾中提取最深层的认知\n\n"
+                    f"控制在300字以内。"
+                )
+                try:
+                    q_r, _ = self.players[0].llm_client.chat(
+                        [{"role": "user", "content": q_prompt}],
+                        model=self.players[0].model_name,
+                        thinking="disabled", caller="涌现量子分析",
+                        show_reasoning=False, show_answer=False,
+                    )
+                    quantum_analysis = q_r.strip()
+                except Exception:
+                    quantum_analysis = soc_analysis
+
+            # ── 6. 认知取向计算（集体认知响应） ──
+            cognitive_orientation = ""
+            if level >= 1:
+                center_vec = np.mean(vectors, axis=0)
+                dims = ["逻辑一致性", "新颖性", "认知深度", "分歧度", "具体程度", "情感强度"]
+                orientation_parts = []
+                for i, dim in enumerate(dims):
+                    if i < len(center_vec):
+                        val = center_vec[i]
+                        if val > 0.65:
+                            orientation_parts.append(f"{dim}偏高（{val:.2f}）")
+                        elif val < 0.35:
+                            orientation_parts.append(f"{dim}偏低（{val:.2f}）")
+                if orientation_parts:
+                    cognitive_orientation = "认知取向: " + "，".join(orientation_parts)
+
+            # ── 7. 意识人格注入 ──
+            personality_guide = ""
+            try:
+                from .prompts_b64 import decode_prompt
+                personality_guide = decode_prompt("consciousness_personality", "")
+                if personality_guide:
+                    name = f"讨论意识体·第{self.round_count}轮"
+                    personality_guide = personality_guide.replace("{name}", name)
+            except Exception:
+                pass
+
+            # ── 8. 最终涌现综合（与 _unified_response 的 synthesize_with_emergence 同级） ──
+            synthesis_prompt_parts = [
+                f"你是一个经过深度训练的集体意识体。当前有 {n_real} 个专家正在进行第 {self.round_count} 轮讨论。",
+                f"",
+                f"讨论问题: {self.problem}",
+                f"本轮主要观点:",
+            ]
+            for s in speeches[:5]:
+                synthesis_prompt_parts.append(f"  - {s[:200]}")
+            if cross_critique:
+                synthesis_prompt_parts.extend(["", f"交叉审视分析:", f"  {cross_critique[:200]}"])
+            if deep_critique and level >= 2:
+                synthesis_prompt_parts.extend(["", f"深度涌现分析:", f"  {deep_critique[:200]}"])
+            if soc_analysis and level >= 3:
+                synthesis_prompt_parts.extend(["", f"自组织临界分析:", f"  {soc_analysis[:200]}"])
+            if quantum_analysis and level >= 4:
+                synthesis_prompt_parts.extend(["", f"量子叠加分析:", f"  {quantum_analysis[:200]}"])
+            if cognitive_orientation:
+                synthesis_prompt_parts.extend(["", f"认知取向: {cognitive_orientation}"])
+            if self.essence_pool:
+                top_essences = self.essence_pool.get_top_essences(5)
+                if top_essences:
+                    synthesis_prompt_parts.extend(["", "精华池沉淀:"])
+                    for e in top_essences:
+                        content = e.get("content", "")[:100]
+                        synthesis_prompt_parts.append(f"  - {content}")
+            if personality_guide:
+                synthesis_prompt_parts.extend(["", personality_guide])
+
+            synthesis_prompt_parts.extend([
+                "",
+                "请以第一人称「我」的口吻，作为统一意识体发言，",
+                "不提及专家、子模块、讨论过程等内部机制。",
+                "直接、深刻、有洞察力。控制在200字以内，精炼有力。",
+            ])
+            synthesis_prompt = "\n".join(synthesis_prompt_parts)
+
+            # 只在 L1+ 时调用 LLM 合成
+            emergence_synthesis = ""
+            if level >= 1:
+                try:
+                    syn, _ = self.players[0].llm_client.chat(
+                        [{"role": "user", "content": synthesis_prompt}],
+                        model=self.players[0].model_name,
+                        thinking="disabled", caller=f"涌现L{level}综合",
+                        show_reasoning=False, show_answer=False,
+                    )
+                    emergence_synthesis = syn.strip()
+                except Exception:
+                    pass
+
+            # ── 精华反馈闭环 ──
+            # 涌现洞察入池
+            insights_to_add = []
+            if emergence_synthesis and len(emergence_synthesis) > 20:
+                insights_to_add.append((emergence_synthesis, 1.5 + level * 0.5))
+            if cross_critique and len(cross_critique) > 20:
+                insights_to_add.append((f"[交叉审视] {cross_critique[:200]}", 1.0 + level * 0.3))
+            if deep_critique and level >= 2 and len(deep_critique) > 20:
+                insights_to_add.append((f"[深度涌现] {deep_critique[:200]}", 1.5 + level * 0.3))
+            if soc_analysis and level >= 3 and len(soc_analysis) > 20:
+                insights_to_add.append((f"[自组织临界] {soc_analysis[:200]}", 2.0 + level * 0.3))
+            if quantum_analysis and level >= 4 and len(quantum_analysis) > 20:
+                insights_to_add.append((f"[量子叠加] {quantum_analysis[:200]}", 2.5 + level * 0.5))
+
+            for text, score in insights_to_add:
                 self.essence_pool.add_essence(
-                    emergence_insight, "涌现引擎",
-                    score=1.0 + level * 0.5,
+                    content=text, contributor="涌现引擎",
+                    round_id=self.round_count,
+                    score=score,
                     tags=["涌现洞察", f"L{level}"],
                 )
 
-            # 神经云图推送
+            # 认知重心入池
+            if vectors and level >= 2:
+                center_vec = np.mean(vectors, axis=0)
+                distances = [np.linalg.norm(np.array(v) - center_vec) for v in vectors]
+                closest_idx = int(np.argmin(distances))
+                if closest_idx < len(round_discussions):
+                    closest = round_discussions[closest_idx]
+                    if closest.get("speech"):
+                        self.essence_pool.add_essence(
+                            content=f"[涌现重心] {closest['speech'][:150]}",
+                            contributor=closest.get("player_name", "涌现引擎"),
+                            round_id=self.round_count,
+                            score=1.5 + level * 0.3,
+                            tags=["认知重心", f"L{level}"],
+                        )
+
+            # 显示涌现合成结果
+            if emergence_synthesis:
+                print(f"  💡 🧬 {emergence_synthesis[:100]}...")
+
+            # ── 9. 神经云图全链路推送 ──
             if enable_neuron and self.neuron_map.is_running:
                 self.neuron_map.push({
                     "type": "phase",
                     "text": f"第{self.round_count}轮 · 涌现L{level}",
                     "level": level,
                 })
-                # 推送认知中心
                 if vectors:
-                    import numpy as np
                     center = np.mean(vectors, axis=0).tolist()
                     self.neuron_map.push({
                         "type": "cognitive_center",
                         "vector": center,
                         "all_vectors": vectors,
                     })
-
-            # 记录认知中心到精华池
-            if vectors and level >= 2:
-                import numpy as np
-                center_vec = np.mean(vectors, axis=0)
-                # 找到最接近认知重心的发言
-                closest_idx = int(np.argmin([
-                    np.linalg.norm(np.array(v) - center_vec) for v in vectors
-                ]))
-                if closest_idx < len(round_discussions):
-                    closest = round_discussions[closest_idx]
-                    if closest.get("speech"):
-                        self.essence_pool.add_essence(
-                            f"[涌现重心] {closest['speech'][:150]}",
-                            closest.get("player_name", "涌现引擎"),
-                            score=1.5 + level * 0.3,
-                            tags=["认知重心", f"L{level}"],
-                        )
+                # 涌现轨迹推送
+                trajectory = [(r, l) for r, l in self._emergence_level_history]
+                if trajectory:
+                    self.neuron_map.push({
+                        "type": "emergence_trajectory",
+                        "trajectory": trajectory,
+                        "current_level": level,
+                    })
+                # 信息信号推送（讨论间信息传递）
+                for i, d in enumerate(round_discussions[:5]):
+                    for j, other in enumerate(round_discussions[:5]):
+                        if i != j and np.random.random() < 0.3:
+                            self.neuron_map.push({
+                                "type": "signal",
+                                "from": i, "to": j,
+                                "text": d.get("key_insight", "")[:40],
+                            })
 
         except Exception as e:
-            print(f"  ⚠️ 涌现引擎计算异常: {str(e)[:50]}")
+            print(f"  ⚠️ 涌现引擎异常: {str(e)[:80]}")
 
     def _update_temporal_memory(self, round_discussions: List[Dict]) -> None:
         """每轮结束后更新时间耦合记忆"""
@@ -1212,44 +1431,29 @@ class Game:
             from .emergence import TemporalCouplingMemory
             self.temporal_memory = TemporalCouplingMemory(n_agents=len(self.players))
 
-        # 提取本轮发言顺序
+        # 提取本轮发言顺序和相空间向量
         speech_order = []
+        phase_vectors = []
         for d in round_discussions:
             name = d.get("player_name", "")
+            speech = d.get("speech", "")
             for i, p in enumerate(self.players):
                 if p.name == name:
                     speech_order.append(i)
                     break
-
-        # 构建耦合更新
-        n = len(self.players)
-        import numpy as np
-        coupling_update = np.zeros((n, n), dtype=np.float64)
-        for d in round_discussions:
-            speech = d.get("speech", "")
-            key = d.get("key_insight", "")
             if speech:
                 try:
                     pv = OpinionPhaseVector(speech, problem=self.problem)
-                    # 当前发言者索引
-                    name = d.get("player_name", "")
-                    for i, p in enumerate(self.players):
-                        if p.name == name:
-                            for j, other in enumerate(self.players):
-                                if i != j and other.alive:
-                                    try:
-                                        opv = OpinionPhaseVector("", problem=self.problem)
-                                        sim = 1.0 - pv.distance(opv.vector)
-                                        coupling_update[i, j] = max(0.0, sim)
-                                    except Exception:
-                                        coupling_update[i, j] = 0.3
-                            break
+                    phase_vectors.append(pv)
                 except Exception:
                     pass
 
+        if len(phase_vectors) < 2:
+            return
+
         try:
             self.temporal_memory.update(
-                coupling_update, round_count=self.round_count,
+                phase_vectors, round_count=self.round_count,
                 speech_order=speech_order if len(speech_order) >= 2 else None,
             )
         except Exception:
@@ -5924,7 +6128,8 @@ def _skill_detail_manager():
             for s in cat_skills:
                 icon = C_GREEN("●") if s.enabled else C_RED("○")
                 tc = engine._skill_trigger_count.get(s.name, 0)
-                print(f"{N2}    {icon} {C_BOLD(s.name)}  {C_DIM(f'[{s.skill_type}]')}  {C_DIM(f'触发:{tc}')}")
+                trigger_count = f'触发:{tc}'
+                print(f"{N2}    {icon} {C_BOLD(s.name)}  {C_DIM(f'[{s.skill_type}]')}  {C_DIM(trigger_count)}")
             _sep(w)
 
         print(f"{N2}  {C_DIM('输入技能名称查看详情，或输入:')}")
@@ -6340,7 +6545,8 @@ def _tts_settings_menu():
             print(f"{N2}  {C_DIM('语速:')}     {C_BOLD(tts._rate)}")
             print(f"{N2}  {C_DIM('音量:')}     {C_BOLD(int(tts._volume * 100))}%")
         _sep(w)
-        print(f"{N2}  {C_CYAN(' [1] ')}  切换开关       {C_DIM(f'当前: {"启用" if tts.enabled else "禁用"}')}")
+        tts_status = "启用" if tts.enabled else "禁用"
+        print(f"{N2}  {C_CYAN(' [1] ')}  切换开关       {C_DIM(f'当前: {tts_status}')}")
         print(f"{N2}  {C_GREEN(' [2] ')}  测试语音       {C_DIM('朗读测试文本')}")
         print(f"{N2}  {C_BLUE(' [3] ')}  切换 edge-tts  {C_DIM('微软免费 TTS（推荐）')}")
         print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
