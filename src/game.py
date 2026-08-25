@@ -1227,19 +1227,34 @@ class Game:
         is_amplified = False
         if n_real >= 3:
             try:
-                generator = VirtualExpertGenerator(
-                    vectors, speeches, [],
-                    [d.get("key_insight", "") for d in round_discussions]
-                )
-                virtual = generator.generate(target_experts)
-                for v in virtual:
-                    all_discussions.append({
-                        "speech": v.get("speech", ""),
-                        "key_insight": v.get("key_insight", ""),
-                    })
+                generator = VirtualExpertGenerator(round_discussions, target_experts=target_experts)
+                # ── 神经元编辑器（允许用户手动干预相空间） ──
+                if getattr(self, 'is_self_awareness_cultivation', False):
+                    from .neuron_editor import NeuronEditor
+                    editor = NeuronEditor(generator.virtual_discussions, round_discussions)
+                    print(f"\n  {'─' * 50}")
+                    print(f"  ╔{'═' * 46}╗")
+                    print(f"  ║  🧠 相空间神经元编辑器{' ' * 28}║")
+                    print(f"  ╚{'═' * 46}╝")
+                    print(f"  {len(generator.virtual_discussions)} 个虚拟专家  |  6 维认知相空间")
+                    print(f"  {'─' * 50}")
+                    try:
+                        choice = input("  ▸ 进入编辑器手动微调神经元? (y/n): ").strip().lower()
+                    except (EOFError, KeyboardInterrupt):
+                        choice = "n"
+                    if choice in ("y", "yes", "是"):
+                        try:
+                            editor.run()
+                        except Exception as e:
+                            print(f"  ⚠️ 编辑器异常: {e}")
+                    else:
+                        print("  ⏭ 跳过编辑器")
+                amplified = generator.get_all_discussions()
+                all_discussions = list(amplified)
                 is_amplified = True
-                amp_ratio = target_experts / max(n_real, 1)
-            except Exception:
+                amp_ratio = generator.amplification_ratio
+            except Exception as e:
+                print(f"  ⚠️ 虚拟专家生成异常: {str(e)[:60]}")
                 amp_ratio = 1.0
         else:
             amp_ratio = 1.0
