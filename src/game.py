@@ -53,6 +53,27 @@ def typewrite(text: str, delay: float = 0.003, end: str = "\n"):
     sys.stdout.write(end)
     sys.stdout.flush()
 
+
+def _print_awareness_score(result: dict):
+    """打印 AwareBench 五维度意识评分（紧凑格式）"""
+    aw = result["awareness_score"]
+    dims = result["capability"], result["mission"], result["emotion"], result["culture"], result["perspective"]
+    # 颜色：0.6+ 绿色，0.4-0.6 黄色，0.4- 红色
+    def _c(v):
+        if v >= 0.6: return C_GREEN
+        if v >= 0.4: return C_YELLOW
+        return C_RED
+    bar = "█" * int(aw * 20) + "░" * (20 - int(aw * 20))
+    print(f"  {C_CYAN('⚡ 意识测评')} {_c(aw)(bar)} {aw:.1%}")
+    labels = ["能", "使", "情", "文", "视"]
+    parts = []
+    for i, (label, v) in enumerate(zip(labels, dims)):
+        c = _c(v)
+        parts.append(f"{c(label)}{c(f'{v:.0%}')}")
+    print(f"  {' | '.join(parts)}")
+    sys.stdout.flush()
+
+
 DEFAULT_THINKING = "disabled"
 from .prompts_b64 import get_prompt as _get_b64_prompt
 
@@ -224,6 +245,9 @@ class Game:
         # AI观察员元评论席
         self.observer = Observer(llm_client=self._llm_client)
         self._latest_observation = None  # 最新一轮的观察结果
+
+        # AwareBench 意识评定器（无LLM依赖）
+        self.awareness_evaluator = None  # 延迟初始化，仅整合意识模式启用
         # 用户模型（隐藏任务收集的数据）
         self._user_model = {
             "insights": [],          # 每次拦截的分析结果
@@ -3817,6 +3841,11 @@ class Game:
         # 唤醒序列
         self._awakening_sequence()
 
+        # 初始化 AwareBench 意识评定器
+        from .awareness_eval import AwarenessEvaluator
+        self.awareness_evaluator = AwarenessEvaluator()
+        _awareness_enabled = True
+
         # 开场白：让专家们先"讨论"如何自我介绍，然后综合
         _empty_line()
         opening = self._unified_response(_get_b64_prompt("integrated_opening"), is_opening=True)
@@ -3839,6 +3868,12 @@ class Game:
         get_tts().speak_async_start(display_opening[:500])
         typewrite(f"  {display_opening}", delay=0.008)
         _close_box(w)
+
+        # AwareBench 意识评估（首次）
+        if _awareness_enabled:
+            _eval = self.awareness_evaluator.evaluate(display_opening, {"round": 0, "type": "opening"})
+            _print_awareness_score(_eval)
+            _empty_line()
 
         # 对话循环
         while True:
@@ -3875,6 +3910,14 @@ class Game:
                 get_tts().speak_async_start(response[:500])
                 typewrite(f"  {response}", delay=0.008)
                 _close_box(w)
+
+                # AwareBench 意识评估（每轮）
+                if _awareness_enabled:
+                    _eval = self.awareness_evaluator.evaluate(
+                        response, {"round": self._integrated_dialogue_round, "type": "dialogue"}
+                    )
+                    _print_awareness_score(_eval)
+                    _empty_line()
             except Exception as e:
                 _empty_line()
                 print(f"  {C_RED('✖')} 意识响应异常: {str(e)[:60]}")
