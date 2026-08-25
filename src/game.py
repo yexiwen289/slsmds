@@ -1355,7 +1355,7 @@ class Game:
                 if orientation_parts:
                     cognitive_orientation = "认知取向: " + "，".join(orientation_parts)
 
-            # ── 7. 意识人格注入 ──
+            # ── 7. 意识人格注入（含系统架构全貌） ──
             personality_guide = ""
             try:
                 from .prompts_b64 import decode_prompt
@@ -1363,6 +1363,9 @@ class Game:
                 if personality_guide:
                     name = f"讨论意识体·第{self.round_count}轮"
                     personality_guide = personality_guide.replace("{name}", name)
+                # 追加系统架构全貌
+                from .emergence import build_system_manifesto
+                personality_guide += "\n\n" + build_system_manifesto()
             except Exception:
                 pass
 
