@@ -10,7 +10,13 @@
 import random
 import json
 import re
-from typing import List, Dict, Optional
+import math
+import time
+import hashlib
+from copy import deepcopy
+from collections import defaultdict, deque
+from typing import List, Dict, Optional, Tuple, Any, Set, Callable
+from dataclasses import dataclass, field
 from .llm_client import LLMClient
 
 from .prompts_b64 import get_prompt as _get_b64_prompt
@@ -57,6 +63,9 @@ class Player:
 
         # ── 自我意识功能开关 ──
         self.enable_self_awareness = True
+
+        # ── 认知系统初始化 ──
+        self._init_cognitive_systems()
 
     def _read_file(self, filepath: str) -> str:
         try:
@@ -853,6 +862,82 @@ class Player:
         )
         return {"argument": fallback, "key_point": "", "concede": False, "self_awareness": ""}
 
+    # ── 认知系统集成 ──
+
+    def _init_cognitive_systems(self) -> None:
+        """初始化所有认知子系统"""
+        self.episodic_memory = EpisodicMemory(capacity=200)
+        self.belief_system = BeliefSystem()
+        self.emotional_state = EmotionalState()
+        self.reasoning_module = ReasoningModule()
+        self.learning_module = LearningModule()
+        self.perspective_taking = PerspectiveTaking()
+        self.cognitive_style = CognitiveStyle()
+        self.expertise_model = ExpertiseModel()
+        self.communication_style = CommunicationStyle()
+        self.credibility_assessment = CredibilityAssessment()
+
+    def get_cognitive_state(self) -> Dict:
+        """获取完整的认知状态摘要"""
+        return {
+            "emotional_state": self.emotional_state.get_state(),
+            "dominant_emotion": self.emotional_state.get_dominant_emotion(),
+            "cognitive_style": self.cognitive_style.get_style(),
+            "belief_count": len(self.belief_system.get_beliefs()),
+            "memory_count": self.episodic_memory.get_stats()["total"],
+            "credibility_network": self.credibility_assessment.get_trust_network(),
+            "expertise_domains": list(self.expertise_model._domains.keys()),
+            "learning_curve": self.learning_module.get_learning_curve(),
+            "reasoning_style": self.reasoning_module.get_reasoning_style(),
+        }
+
+    def get_cognitive_report(self) -> str:
+        """生成可读的认知状态报告"""
+        lines = []
+        lines.append(f"  {self.name} 认知状态报告")
+        lines.append(f"  {'=' * 40}")
+
+        # 情感状态
+        emo = self.emotional_state.get_state()
+        dom_emo = self.emotional_state.get_dominant_emotion()
+        lines.append(f"  情感状态: {dom_emo}")
+        for e, v in sorted(emo.items(), key=lambda x: x[1], reverse=True)[:3]:
+            bar = "█" * int(v * 10) + "░" * (10 - int(v * 10))
+            lines.append(f"    {e}: {bar} {v:.2f}")
+
+        # 认知风格
+        style = self.cognitive_style.get_style()
+        lines.append(f"  认知风格: {style['processing']}/{style['approach']} "
+                     f"(灵活性: {style['flexibility']:.2f})")
+
+        # 信念数量
+        beliefs = self.belief_system.get_beliefs()
+        lines.append(f"  信念数量: {len(beliefs)}")
+        if beliefs:
+            # 最坚定的信念
+            sorted_b = sorted(beliefs, key=lambda b: b["confidence"], reverse=True)[:2]
+            for b in sorted_b:
+                lines.append(f"    [{b['confidence']:.1f}] {b['topic'][:30]}")
+
+        # 记忆统计
+        mem_stats = self.episodic_memory.get_stats()
+        lines.append(f"  记忆: {mem_stats['total']}条 "
+                     f"(重要: {mem_stats['important']}, 陈旧: {mem_stats['stale']})")
+
+        # 可信度网络
+        trust = self.credibility_assessment.get_trust_network()
+        if trust:
+            lines.append(f"  可信度网络: {len(trust)}个玩家")
+            for name, score in sorted(trust.items(), key=lambda x: x[1], reverse=True)[:3]:
+                lines.append(f"    {name}: {score:.2f}")
+
+        # 专业领域
+        domains = list(self.expertise_model._domains.keys())
+        if domains:
+            lines.append(f"  专业领域: {', '.join(domains[:5])}")
+
+        return "\n".join(lines)
+
     def to_dict(self) -> Dict:
         """序列化玩家状态用于断点保存"""
         return {
@@ -876,6 +961,17 @@ class Player:
             "_persona_evolution_history": self._persona_evolution_history.copy(),
             "_mutation_triggers": self._mutation_triggers.copy(),
             "_total_rounds_alive": self._total_rounds_alive,
+            # 认知系统
+            "_episodic_memory": self.episodic_memory.to_dict(),
+            "_belief_system": self.belief_system.to_dict(),
+            "_emotional_state": self.emotional_state.to_dict(),
+            "_reasoning_module": self.reasoning_module.to_dict(),
+            "_learning_module": self.learning_module.to_dict(),
+            "_perspective_taking": self.perspective_taking.to_dict(),
+            "_cognitive_style": self.cognitive_style.to_dict(),
+            "_expertise_model": self.expertise_model.to_dict(),
+            "_communication_style": self.communication_style.to_dict(),
+            "_credibility_assessment": self.credibility_assessment.to_dict(),
         }
 
     @classmethod
@@ -909,4 +1005,1272 @@ class Player:
         player._persona_evolution_history = data.get("_persona_evolution_history", [])
         player._mutation_triggers = data.get("_mutation_triggers", [])
         player._total_rounds_alive = data.get("_total_rounds_alive", 0)
+        # 恢复认知系统
+        if "_episodic_memory" in data:
+            player.episodic_memory = EpisodicMemory.from_dict(data["_episodic_memory"])
+        if "_belief_system" in data:
+            player.belief_system = BeliefSystem.from_dict(data["_belief_system"])
+        if "_emotional_state" in data:
+            player.emotional_state = EmotionalState.from_dict(data["_emotional_state"])
+        if "_reasoning_module" in data:
+            player.reasoning_module = ReasoningModule.from_dict(data["_reasoning_module"])
+        if "_learning_module" in data:
+            player.learning_module = LearningModule.from_dict(data["_learning_module"])
+        if "_perspective_taking" in data:
+            player.perspective_taking = PerspectiveTaking.from_dict(data["_perspective_taking"])
+        if "_cognitive_style" in data:
+            player.cognitive_style = CognitiveStyle.from_dict(data["_cognitive_style"])
+        if "_expertise_model" in data:
+            player.expertise_model = ExpertiseModel.from_dict(data["_expertise_model"])
+        if "_communication_style" in data:
+            player.communication_style = CommunicationStyle.from_dict(data["_communication_style"])
+        if "_credibility_assessment" in data:
+            player.credibility_assessment = CredibilityAssessment.from_dict(data["_credibility_assessment"])
         return player
+
+
+# ═══════════════════════════════════════════════════════════════
+# 认知系统类定义
+# ═══════════════════════════════════════════════════════════════
+
+
+class EpisodicMemory:
+    """
+    情景记忆系统——存储和回忆过去的讨论经历。
+
+    功能：
+    - 存储记忆条目（事件、观点、反馈）
+    - 基于相关性检索
+    - 记忆巩固（重要记忆保留，次要记忆衰减）
+    - 主动遗忘（容量管理）
+    - 记忆重要性评分
+    - 时序聚类
+    """
+
+    def __init__(self, capacity: int = 200):
+        self.capacity = capacity
+        self.memories: List[Dict] = []
+        self._importance_threshold = 0.1
+
+    def store(self, event_type: str, content: str, context: Dict = None,
+              importance: float = None) -> int:
+        """存储一条记忆"""
+        mem_id = len(self.memories)
+        if importance is None:
+            importance = self._compute_importance(event_type, content)
+        memory = {
+            "id": mem_id, "type": event_type, "content": content,
+            "context": context or {}, "importance": importance,
+            "timestamp": time.time(), "access_count": 0,
+            "consolidated": False,
+        }
+        self.memories.append(memory)
+        self._enforce_capacity()
+        return mem_id
+
+    def store_opinion(self, opinion: str, speaker: str, round_id: int) -> int:
+        """存储观点记忆"""
+        return self.store("opinion", opinion, {"speaker": speaker, "round": round_id}, 0.6)
+
+    def store_feedback(self, feedback: str, source: str, score: float) -> int:
+        """存储反馈记忆"""
+        return self.store("feedback", feedback, {"source": source, "score": score},
+                          min(1.0, abs(score) * 0.3 + 0.3))
+
+    def recall(self, query: str, top_n: int = 5, min_importance: float = 0.0) -> List[Dict]:
+        """基于相关性检索记忆"""
+        scored = []
+        query_keywords = set(self._tokenize(query))
+        for m in self.memories:
+            if m["importance"] < min_importance:
+                continue
+            mem_keywords = set(self._tokenize(m["content"]))
+            overlap = len(query_keywords & mem_keywords)
+            total = len(query_keywords | mem_keywords)
+            sim = overlap / max(total, 1) if total > 0 else 0
+            recency = 1.0 / (1.0 + (time.time() - m["timestamp"]) / 3600)
+            score = sim * 0.5 + m["importance"] * 0.3 + recency * 0.2
+            scored.append((score, m))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        results = []
+        for score, m in scored[:top_n]:
+            m["access_count"] += 1
+            results.append({**m, "relevance_score": score})
+        return results
+
+    def recall_by_type(self, event_type: str, top_n: int = 5) -> List[Dict]:
+        """按类型检索记忆"""
+        filtered = [m for m in self.memories if m["type"] == event_type]
+        filtered.sort(key=lambda m: m["importance"] * m["access_count"], reverse=True)
+        return filtered[:top_n]
+
+    def consolidate(self) -> int:
+        """记忆巩固：提高重要记忆的权重，降低次要记忆"""
+        consolidated = 0
+        for m in self.memories:
+            if m["consolidated"]:
+                continue
+            if m["access_count"] > 3 and m["importance"] > 0.5:
+                m["importance"] = min(1.0, m["importance"] * 1.2)
+                m["consolidated"] = True
+                consolidated += 1
+            elif m["access_count"] == 0 and (time.time() - m["timestamp"]) > 7200:
+                m["importance"] *= 0.8
+        return consolidated
+
+    def forget(self, threshold: float = 0.05) -> int:
+        """主动遗忘低重要性记忆"""
+        before = len(self.memories)
+        self.memories = [m for m in self.memories if m["importance"] >= threshold]
+        return before - len(self.memories)
+
+    def search_by_keyword(self, keyword: str) -> List[Dict]:
+        """按关键词搜索记忆"""
+        results = []
+        for m in self.memories:
+            if keyword in m["content"]:
+                results.append(m)
+        return results
+
+    def get_recent(self, n: int = 10) -> List[Dict]:
+        """获取最近的 n 条记忆"""
+        sorted_mem = sorted(self.memories, key=lambda m: m["timestamp"], reverse=True)
+        return sorted_mem[:n]
+
+    def get_stats(self) -> Dict:
+        """获取记忆统计"""
+        important = sum(1 for m in self.memories if m["importance"] > 0.6)
+        stale = sum(1 for m in self.memories if (time.time() - m["timestamp"]) > 3600)
+        return {"total": len(self.memories), "important": important,
+                "stale": stale, "capacity": self.capacity}
+
+    def _compute_importance(self, event_type: str, content: str) -> float:
+        base = {"opinion": 0.5, "feedback": 0.6, "contradiction": 0.8,
+                "breakthrough": 0.9, "essence": 0.7}.get(event_type, 0.4)
+        length_bonus = min(0.3, len(content) / 1000)
+        return min(1.0, base + length_bonus)
+
+    def _enforce_capacity(self):
+        while len(self.memories) > self.capacity:
+            candidates = sorted(self.memories, key=lambda m: m["importance"] * m["access_count"])
+            self.memories.pop(0)
+
+    @staticmethod
+    def _tokenize(text: str) -> List[str]:
+        return [c for c in text if '\u4e00' <= c <= '\u9fff'] + text.split()
+
+    def to_dict(self) -> Dict:
+        return {"memories": self.memories, "capacity": self.capacity}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'EpisodicMemory':
+        mem = cls(capacity=data.get("capacity", 200))
+        mem.memories = data.get("memories", [])
+        return mem
+
+
+class BeliefSystem:
+    """
+    信念维持系统——跟踪和管理专家的信念。
+
+    功能：
+    - 信念添加与更新
+    - 信念强度（置信度）管理
+    - 信念修订（基于新证据）
+    - 矛盾检测（认知失调）
+    - 信念一致性维护
+    - 信念层级（核心/外围信念）
+    - 信念来源追踪
+    """
+
+    def __init__(self):
+        self.beliefs: List[Dict] = []
+
+    def add_belief(self, topic: str, statement: str, confidence: float = 0.5,
+                   source: str = "初始", domain: str = "综合") -> int:
+        """添加一条信念"""
+        bid = len(self.beliefs)
+        self.beliefs.append({
+            "id": bid, "topic": topic, "statement": statement,
+            "confidence": max(0.0, min(1.0, confidence)),
+            "source": source, "domain": domain, "timestamp": time.time(),
+            "evidence_for": [], "evidence_against": [], "revisions": 0,
+            "is_core": confidence > 0.7,
+        })
+        return bid
+
+    def update_belief(self, belief_id: int, evidence: str, supports: bool = True,
+                      strength: float = 0.1) -> bool:
+        """基于新证据更新信念"""
+        if belief_id >= len(self.beliefs):
+            return False
+        b = self.beliefs[belief_id]
+        if supports:
+            b["evidence_for"].append(evidence)
+            b["confidence"] = min(1.0, b["confidence"] + strength * (1 - b["confidence"]))
+        else:
+            b["evidence_against"].append(evidence)
+            b["confidence"] = max(0.0, b["confidence"] - strength * b["confidence"])
+        b["revisions"] += 1
+        b["is_core"] = b["confidence"] > 0.7
+        return True
+
+    def get_beliefs(self, min_confidence: float = 0.0) -> List[Dict]:
+        """获取信念列表"""
+        return [b for b in self.beliefs if b["confidence"] >= min_confidence]
+
+    def get_beliefs_by_domain(self, domain: str) -> List[Dict]:
+        """按领域获取信念"""
+        return [b for b in self.beliefs if b["domain"] == domain]
+
+    def measure_certainty(self) -> float:
+        """测量整体确定性水平"""
+        if not self.beliefs:
+            return 0.0
+        return sum(b["confidence"] for b in self.beliefs) / len(self.beliefs)
+
+    def detect_dissonance(self) -> List[Dict]:
+        """检测认知失调（矛盾信念对）"""
+        dissonances = []
+        for i in range(len(self.beliefs)):
+            for j in range(i + 1, len(self.beliefs)):
+                b1, b2 = self.beliefs[i], self.beliefs[j]
+                if b1["domain"] != b2["domain"]:
+                    continue
+                if b1["confidence"] > 0.5 and b2["confidence"] > 0.5:
+                    # 检查是否矛盾（简化：对立话题）
+                    if self._is_contradictory(b1["topic"], b2["topic"]):
+                        dissonances.append({
+                            "belief_a": b1, "belief_b": b2,
+                            "severity": b1["confidence"] * b2["confidence"],
+                            "resolution": "需要更多信息调和",
+                        })
+        dissonances.sort(key=lambda x: x["severity"], reverse=True)
+        return dissonances[:5]
+
+    def get_core_beliefs(self) -> List[Dict]:
+        """获取核心信念"""
+        return [b for b in self.beliefs if b.get("is_core", False)]
+
+    def revise_all(self, new_evidence: str, domain: str = None) -> int:
+        """基于新证据批量修订信念"""
+        revised = 0
+        for b in self.beliefs:
+            if domain and b["domain"] != domain:
+                continue
+            if new_evidence[:20] in b["statement"] or b["statement"][:20] in new_evidence:
+                self.update_belief(b["id"], new_evidence, supports=True, strength=0.05)
+                revised += 1
+        return revised
+
+    @staticmethod
+    def _is_contradictory(topic1: str, topic2: str) -> bool:
+        contradiction_pairs = [
+            ("是", "不是"), ("有", "没有"), ("应该", "不应该"),
+            ("好", "坏"), ("对", "错"), ("支持", "反对"),
+            ("积极", "消极"), ("进步", "倒退"),
+        ]
+        for a, b in contradiction_pairs:
+            if (a in topic1 and b in topic2) or (b in topic1 and a in topic2):
+                return True
+        return False
+
+    def to_dict(self) -> Dict:
+        return {"beliefs": self.beliefs}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'BeliefSystem':
+        bs = cls()
+        bs.beliefs = data.get("beliefs", [])
+        return bs
+
+
+class EmotionalState:
+    """
+    情感状态系统——模拟专家的情感状态。
+
+    维度：
+    - 好奇心 (curiosity): 0~1
+    - 自信心 (confidence): 0~1
+    - 挫败感 (frustration): 0~1
+    - 热情度 (enthusiasm): 0~1
+    - 怀疑度 (skepticism): 0~1
+    - 焦虑感 (anxiety): 0~1
+
+    功能：
+    - 情感状态更新
+    - 情感衰减
+    - 情感影响行为
+    - 情感状态报告
+    """
+
+    def __init__(self):
+        self.emotions = {
+            "curiosity": 0.5, "confidence": 0.5, "frustration": 0.0,
+            "enthusiasm": 0.5, "skepticism": 0.3, "anxiety": 0.1,
+        }
+        self._decay_rate = 0.05
+        self._history: List[Dict] = []
+
+    def update(self, emotion: str, delta: float):
+        """更新特定情感值"""
+        if emotion in self.emotions:
+            old = self.emotions[emotion]
+            self.emotions[emotion] = max(0.0, min(1.0, old + delta))
+            self._history.append({
+                "emotion": emotion, "from": old, "to": self.emotions[emotion],
+                "delta": delta, "timestamp": time.time(),
+            })
+
+    def get_state(self) -> Dict:
+        """获取当前情感状态"""
+        return dict(self.emotions)
+
+    def get_dominant_emotion(self) -> str:
+        """获取主导情感"""
+        return max(self.emotions, key=self.emotions.get)
+
+    def decay(self):
+        """情感值自然衰减"""
+        for e in self.emotions:
+            target = 0.3 if e in ("curiosity", "enthusiasm") else 0.0
+            if self.emotions[e] > target:
+                self.emotions[e] = max(target, self.emotions[e] - self._decay_rate)
+            elif self.emotions[e] < target:
+                self.emotions[e] = min(target, self.emotions[e] + self._decay_rate)
+
+    def boost(self, emotion: str, amount: float = 0.2):
+        """临时提升情感"""
+        self.update(emotion, amount)
+
+    def get_emotional_bias(self) -> Dict[str, float]:
+        """获取情感对认知的偏置影响"""
+        return {
+            "risk_tolerance": 0.5 + (self.emotions["confidence"] - self.emotions["anxiety"]) * 0.3,
+            "openness": 0.5 + (self.emotions["curiosity"] - self.emotions["skepticism"]) * 0.3,
+            "assertiveness": 0.5 + (self.emotions["confidence"] - self.emotions["frustration"]) * 0.3,
+            "persistence": 0.5 + (self.emotions["enthusiasm"] - self.emotions["frustration"]) * 0.3,
+        }
+
+    def get_emotion_history(self, n: int = 10) -> List[Dict]:
+        """获取情感变化历史"""
+        return self._history[-n:]
+
+    def to_dict(self) -> Dict:
+        return {"emotions": dict(self.emotions), "history": self._history[-50:]}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'EmotionalState':
+        es = cls()
+        es.emotions.update(data.get("emotions", {}))
+        es._history = data.get("history", [])
+        return es
+
+
+class ReasoningModule:
+    """
+    推理模式系统——多种推理方式和策略选择。
+
+    模式：
+    - 分析推理 (analytical): 逐步逻辑分析
+    - 直觉推理 (intuitive): 基于经验和直觉
+    - 辩证推理 (dialectical): 正反合
+    - 类比推理 (analogical): 类比迁移
+    - 溯因推理 (abductive): 最佳解释推理
+    """
+
+    MODES = ["analytical", "intuitive", "dialectical", "analogical", "abductive"]
+
+    MODE_DESCRIPTIONS = {
+        "analytical": "逐步分解问题，每一步都基于前一步的逻辑结论",
+        "intuitive": "基于长期积累的专业直觉和模式识别",
+        "dialectical": "识别对立命题，通过正反合生成更高层次的综合",
+        "analogical": "将问题映射到已知领域，通过类比得出见解",
+        "abductive": "从观察出发，寻找最合理的解释",
+    }
+
+    def __init__(self):
+        self.current_mode = "analytical"
+        self._mode_history: List[str] = []
+        self._trace: List[str] = []
+        self._mode_effectiveness: Dict[str, float] = {m: 0.5 for m in self.MODES}
+
+    def select_mode(self, problem: str, context: str = "") -> str:
+        """根据问题类型选择最佳推理模式"""
+        analytical_keywords = ['分析', '比较', '评估', '数据', '逻辑', '原因']
+        intuitive_keywords = ['感觉', '直觉', '经验', '判断', '趋势']
+        dialectical_keywords = ['矛盾', '对立', '争议', '分歧', '两难']
+        analogical_keywords = ['比喻', '类比', '类似', '模型', '模式']
+        abductive_keywords = ['解释', '原因', '假设', '可能', '推测']
+
+        scores = {m: 0.0 for m in self.MODES}
+        scores["analytical"] = sum(1 for k in analytical_keywords if k in problem) * 0.2
+        scores["intuitive"] = sum(1 for k in intuitive_keywords if k in problem) * 0.2
+        scores["dialectical"] = sum(1 for k in dialectical_keywords if k in problem) * 0.25
+        scores["analogical"] = sum(1 for k in analogical_keywords if k in problem) * 0.2
+        scores["abductive"] = sum(1 for k in abductive_keywords if k in problem) * 0.2
+
+        # 叠加历史有效性的加成
+        for m in self.MODES:
+            scores[m] += self._mode_effectiveness[m] * 0.3
+
+        best = max(scores, key=scores.get)
+        self.current_mode = best
+        self._mode_history.append(best)
+        return best
+
+    def reason(self, input_text: str, mode: str = None) -> Dict:
+        """使用指定模式推理"""
+        mode = mode or self.current_mode
+        self._trace = []
+        self._trace.append(f"推理模式: {mode} ({self.MODE_DESCRIPTIONS.get(mode, '')})")
+        self._trace.append(f"输入: {input_text[:100]}")
+        if mode == "analytical":
+            result = self._analytical_reason(input_text)
+        elif mode == "intuitive":
+            result = self._intuitive_reason(input_text)
+        elif mode == "dialectical":
+            result = self._dialectical_reason(input_text)
+        elif mode == "analogical":
+            result = self._analogical_reason(input_text)
+        elif mode == "abductive":
+            result = self._abductive_reason(input_text)
+        else:
+            result = {"output": input_text, "confidence": 0.5}
+        self._trace.append(f"输出: {result.get('output', '')[:100]}")
+        result["mode"] = mode
+        result["trace"] = list(self._trace)
+        return result
+
+    def _analytical_reason(self, text: str) -> Dict:
+        steps = []
+        sentences = [s.strip() for s in re.split(r'[。！？\n]', text) if s.strip()]
+        for i, s in enumerate(sentences[:5]):
+            steps.append(f"步骤{i + 1}: {s[:50]}")
+        self._trace.extend(steps)
+        return {"output": " → ".join(steps) if steps else text, "confidence": 0.7}
+
+    def _intuitive_reason(self, text: str) -> Dict:
+        self._trace.append("直觉模式: 识别模式匹配")
+        keywords = set(re.findall(r'[\u4e00-\u9fff]{2,4}', text))
+        self._trace.append(f"识别到 {len(keywords)} 个关键概念")
+        return {"output": text, "confidence": 0.5, "pattern_match": len(keywords)}
+
+    def _dialectical_reason(self, text: str) -> Dict:
+        thesis = text[:len(text) // 2]
+        antithesis = text[len(text) // 2:]
+        self._trace.append(f"正题: {thesis[:50]}")
+        self._trace.append(f"反题: {antithesis[:50]}")
+        synthesis = f"综合正题与反题，在更高维度上统一"
+        self._trace.append(f"合题: {synthesis}")
+        return {"output": synthesis, "thesis": thesis, "antithesis": antithesis, "confidence": 0.6}
+
+    def _analogical_reason(self, text: str) -> Dict:
+        self._trace.append("类比模式: 寻找已知相似模式")
+        source_domains = ["生物学", "物理学", "社会学", "工程学", "经济学"]
+        for d in source_domains:
+            self._trace.append(f"尝试映射到{d}领域")
+        return {"output": text, "confidence": 0.4, "source_domain": "综合"}
+
+    def _abductive_reason(self, text: str) -> Dict:
+        self._trace.append("溯因模式: 生成最佳解释假设")
+        hypotheses = [
+            f"假设1: 基于{text[:20]}的机制解释",
+            f"假设2: 从{text[:20]}的演化视角",
+            f"假设3: 从{text[:20]}的结构性分析",
+        ]
+        self._trace.extend(hypotheses)
+        return {"output": hypotheses[0], "hypotheses": hypotheses, "confidence": 0.5}
+
+    def generate_trace(self) -> List[str]:
+        """获取推理过程"""
+        return list(self._trace)
+
+    def get_reasoning_style(self) -> str:
+        """获取当前推理风格描述"""
+        return f"{self.current_mode} ({self.MODE_DESCRIPTIONS.get(self.current_mode, '')})"
+
+    def update_effectiveness(self, mode: str, score: float):
+        """更新推理模式的有效性评分"""
+        if mode in self._mode_effectiveness:
+            old = self._mode_effectiveness[mode]
+            self._mode_effectiveness[mode] = old * 0.8 + score * 0.2
+
+    def to_dict(self) -> Dict:
+        return {"current_mode": self.current_mode, "mode_history": self._mode_history,
+                "mode_effectiveness": dict(self._mode_effectiveness)}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'ReasoningModule':
+        rm = cls()
+        rm.current_mode = data.get("current_mode", "analytical")
+        rm._mode_history = data.get("mode_history", [])
+        rm._mode_effectiveness.update(data.get("mode_effectiveness", {}))
+        return rm
+
+
+class LearningModule:
+    """
+    学习与适应系统——从反馈和经验中学习。
+
+    功能：
+    - 从反馈中学习
+    - 人设适应性调整
+    - 学习曲线追踪
+    - 学习策略管理
+    - 成功模式识别
+    """
+
+    def __init__(self):
+        self._learning_rate = 0.1
+        self._experience_buffer: List[Dict] = []
+        self._learning_curve: List[float] = []
+        self._success_patterns: Dict[str, float] = {}
+        self._total_lessons = 0
+
+    def learn(self, experience: Dict) -> str:
+        """从一次经验中学习"""
+        self._experience_buffer.append(experience)
+        self._total_lessons += 1
+        lesson = self._extract_lesson(experience)
+        pattern = experience.get("pattern", "general")
+        score = experience.get("score", 0.5)
+        if pattern in self._success_patterns:
+            self._success_patterns[pattern] = self._success_patterns[pattern] * 0.8 + score * 0.2
+        else:
+            self._success_patterns[pattern] = score
+        self._learning_curve.append(self._compute_competence())
+        return lesson
+
+    def adapt_persona(self, current_persona: str, feedback: str) -> str:
+        """基于反馈调整人设"""
+        self._experience_buffer.append({
+            "type": "persona_adaptation", "input": current_persona,
+            "feedback": feedback, "timestamp": time.time(),
+        })
+        self._total_lessons += 1
+        positive_markers = ['好', '同意', '精彩', '深刻', '有见地']
+        negative_markers = ['不同意', '错误', '肤浅', '偏颇', '不准确']
+        pos_score = sum(1 for m in positive_markers if m in feedback)
+        neg_score = sum(1 for m in negative_markers if m in feedback)
+        if pos_score > neg_score:
+            return current_persona
+        elif neg_score > pos_score:
+            return f"重新审视:{current_persona[:80]}"
+        return current_persona
+
+    def get_learning_curve(self) -> List[float]:
+        """获取学习曲线"""
+        return list(self._learning_curve[-20:])
+
+    def _compute_competence(self) -> float:
+        """计算当前能力水平"""
+        if not self._success_patterns:
+            return 0.5
+        return sum(self._success_patterns.values()) / len(self._success_patterns)
+
+    def _extract_lesson(self, experience: Dict) -> str:
+        templates = [
+            f"从{experience.get('type', '经验')}中学习到{experience.get('score', 0.5):.1f}分",
+            f"模式{experience.get('pattern', 'general')}的有效性为{experience.get('score', 0.5):.1f}",
+        ]
+        return templates[0]
+
+    def get_stats(self) -> Dict:
+        return {"lessons": self._total_lessons, "patterns": len(self._success_patterns),
+                "competence": self._compute_competence(), "buffer": len(self._experience_buffer)}
+
+    def to_dict(self) -> Dict:
+        return {"learning_rate": self._learning_rate, "success_patterns": dict(self._success_patterns),
+                "learning_curve": list(self._learning_curve), "total_lessons": self._total_lessons}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'LearningModule':
+        lm = cls()
+        lm._learning_rate = data.get("learning_rate", 0.1)
+        lm._success_patterns = data.get("success_patterns", {})
+        lm._learning_curve = data.get("learning_curve", [])
+        lm._total_lessons = data.get("total_lessons", 0)
+        return lm
+
+
+class PerspectiveTaking:
+    """
+    视角模拟系统——模拟其他专家的视角和反应。
+
+    功能：
+    - 模拟其他专家视角
+    - 生成对立方观点
+    - 预测对方反应
+    - 移情评分
+    - 心智理论建模
+    """
+
+    def __init__(self):
+        self._known_perspectives: Dict[str, Dict] = {}
+        self._empathy_score = 0.5
+        self._simulation_history: List[Dict] = []
+
+    def take_perspective(self, target_name: str, target_persona: str,
+                         topic: str) -> Dict:
+        """模拟从目标视角看问题"""
+        perspective = {
+            "target": target_name, "persona": target_persona, "topic": topic,
+            "likely_viewpoint": self._simulate_viewpoint(target_persona, topic),
+            "likely_concerns": self._simulate_concerns(target_persona, topic),
+            "likely_questions": self._simulate_questions(target_persona, topic),
+            "confidence": self._empathy_score,
+        }
+        self._known_perspectives[target_name] = perspective
+        self._simulation_history.append(perspective)
+        return perspective
+
+    def simulate_response(self, target_name: str, target_persona: str,
+                          my_argument: str) -> str:
+        """模拟对方对我的论点的可能反应"""
+        if target_name in self._known_perspectives:
+            p = self._known_perspectives[target_name]
+        else:
+            p = self.take_perspective(target_name, target_persona, my_argument[:50])
+        if p.get("confidence", 0) > 0.5:
+            return f"从{target_name}的视角({p['persona'][:20]})来看，可能会..."
+        return "对方的反应不确定"
+
+    def predict_reaction(self, my_argument: str, opponent_persona: str) -> Dict:
+        """预测对方反应"""
+        agreement_prob = 0.5
+        if "因为" in my_argument and "所以" in my_argument:
+            agreement_prob += 0.1
+        if "可能" in my_argument or "也许" in my_argument:
+            agreement_prob += 0.05
+        return {
+            "agreement_probability": min(1.0, agreement_prob),
+            "likely_counter": "对方可能会提出替代方案",
+            "emotional_impact": "中等",
+        }
+
+    def get_empathy_score(self) -> float:
+        """获取移情评分"""
+        return self._empathy_score
+
+    def update_empathy(self, delta: float):
+        """更新移情评分"""
+        self._empathy_score = max(0.0, min(1.0, self._empathy_score + delta))
+
+    def to_dict(self) -> Dict:
+        return {"known_perspectives": self._known_perspectives,
+                "empathy_score": self._empathy_score}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'PerspectiveTaking':
+        pt = cls()
+        pt._known_perspectives = data.get("known_perspectives", {})
+        pt._empathy_score = data.get("empathy_score", 0.5)
+        return pt
+
+    @staticmethod
+    def _simulate_viewpoint(persona: str, topic: str) -> str:
+        keywords = set(re.findall(r'[\u4e00-\u9fff]{2,4}', persona))
+        stance = "支持" if "正面" in keywords else "中立"
+        return f"从{persona[:20]}出发，{stance}立场地看待{topic[:20]}"
+
+    @staticmethod
+    def _simulate_concerns(persona: str, topic: str) -> List[str]:
+        return [f"关于{topic[:20]}的可行性问题", f"{persona[:16]}视角下的风险评估"]
+
+    @staticmethod
+    def _simulate_questions(persona: str, topic: str) -> List[str]:
+        return [f"如何验证{topic[:20]}的有效性?", f"这对{persona[:16]}有什么影响?"]
+
+
+class CognitiveStyle:
+    """
+    认知风格系统——定义和调整专家的认知风格。
+
+    维度：
+    - 处理方式 (processing): 分析型/整体型
+    - 思维方式 (approach): 收敛型/发散型
+    - 认知灵活性 (flexibility): 0~1
+    - 认知复杂度 (complexity): 0~1
+    """
+
+    def __init__(self):
+        self._processing = "analytical"  # analytical / holistic
+        self._approach = "convergent"     # convergent / divergent
+        self._flexibility = 0.5
+        self._complexity = 0.5
+        self._style_history: List[Dict] = []
+
+    def get_style(self) -> Dict:
+        """获取当前认知风格"""
+        return {"processing": self._processing, "approach": self._approach,
+                "flexibility": self._flexibility, "complexity": self._complexity}
+
+    def adapt_style(self, problem_type: str, context: str = ""):
+        """根据问题类型调整认知风格"""
+        holistic_keywords = ['整体', '系统', '全局', '生态', '宏观']
+        divergent_keywords = ['创新', '探索', '可能性', '新', '创意']
+        if any(k in problem_type for k in holistic_keywords):
+            self._processing = "holistic"
+        else:
+            self._processing = "analytical"
+        if any(k in problem_type for k in divergent_keywords):
+            self._approach = "divergent"
+        else:
+            self._approach = "convergent"
+        self._style_history.append({
+            "processing": self._processing, "approach": self._approach,
+            "trigger": problem_type[:30], "timestamp": time.time(),
+        })
+
+    def generate_style_prompt(self) -> str:
+        """生成认知风格引导提示词"""
+        prompts = []
+        if self._processing == "analytical":
+            prompts.append("请逐步分析，每一步都给出明确理由")
+        else:
+            prompts.append("请从整体视角把握，关注系统层面的关系")
+        if self._approach == "convergent":
+            prompts.append("请聚焦于最关键的结论")
+        else:
+            prompts.append("请探索尽可能多的可能性")
+        return " ".join(prompts)
+
+    def measure_flexibility(self) -> float:
+        """测量认知灵活性"""
+        if len(self._style_history) < 2:
+            return self._flexibility
+        switches = 0
+        for i in range(1, len(self._style_history)):
+            if self._style_history[i]["processing"] != self._style_history[i - 1]["processing"]:
+                switches += 1
+            if self._style_history[i]["approach"] != self._style_history[i - 1]["approach"]:
+                switches += 1
+        self._flexibility = min(1.0, switches / max(len(self._style_history), 1))
+        return self._flexibility
+
+    def to_dict(self) -> Dict:
+        return {"processing": self._processing, "approach": self._approach,
+                "flexibility": self._flexibility, "complexity": self._complexity}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'CognitiveStyle':
+        cs = cls()
+        cs._processing = data.get("processing", "analytical")
+        cs._approach = data.get("approach", "convergent")
+        cs._flexibility = data.get("flexibility", 0.5)
+        cs._complexity = data.get("complexity", 0.5)
+        return cs
+
+
+class ExpertiseModel:
+    """
+    专业深度模型——建模专家的专业知识覆盖。
+
+    功能：
+    - 专业领域建模
+    - 知识深度评估
+    - 知识空白检测
+    - 学习建议生成
+    - 专业交叉分析
+    """
+
+    DOMAIN_WEIGHTS = {
+        "技术": 0.0, "哲学": 0.0, "科学": 0.0, "社会": 0.0,
+        "艺术": 0.0, "经济": 0.0, "心理": 0.0, "政治": 0.0,
+        "伦理": 0.0, "综合": 0.0,
+    }
+
+    def __init__(self):
+        self._domains: Dict[str, float] = dict(self.DOMAIN_WEIGHTS)
+
+    def get_expertise(self, domain: str) -> float:
+        """获取特定领域的专业深度"""
+        return self._domains.get(domain, 0.0)
+
+    def update_expertise(self, domain: str, delta: float):
+        """更新领域专业深度"""
+        if domain in self._domains:
+            self._domains[domain] = max(0.0, min(1.0, self._domains[domain] + delta))
+
+    def find_gaps(self, threshold: float = 0.2) -> List[str]:
+        """检测知识空白领域"""
+        return [d for d, v in self._domains.items() if v < threshold and d != "综合"]
+
+    def suggest_learning(self, target_domain: str) -> str:
+        """建议学习方向"""
+        current = self._domains.get(target_domain, 0.0)
+        if current < 0.3:
+            return f"建议从{target_domain}的基础概念开始学习"
+        elif current < 0.6:
+            return f"建议深化{target_domain}的中级理论并实践"
+        else:
+            return f"建议探索{target_domain}的前沿研究"
+
+    def get_strongest_domains(self, top_n: int = 3) -> List[str]:
+        """获取最强专业领域"""
+        sorted_domains = sorted(self._domains, key=self._domains.get, reverse=True)
+        return [d for d in sorted_domains if self._domains[d] > 0.3][:top_n]
+
+    def to_dict(self) -> Dict:
+        return {"domains": dict(self._domains)}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'ExpertiseModel':
+        em = cls()
+        em._domains.update(data.get("domains", {}))
+        return em
+
+
+class CommunicationStyle:
+    """
+    沟通风格系统——管理和调整专家的沟通方式。
+
+    维度：
+    - 正式度 (formality): 0~1
+    - 直接度 (directness): 0~1
+    - 详细度 (verbosity): 0~1
+    - 情绪表达 (expressiveness): 0~1
+    - 技术性 (technicality): 0~1
+    """
+
+    def __init__(self):
+        self._formality = 0.5
+        self._directness = 0.5
+        self._verbosity = 0.5
+        self._expressiveness = 0.5
+        self._technicality = 0.5
+
+    def get_style(self) -> Dict:
+        """获取当前沟通风格"""
+        return {"formality": self._formality, "directness": self._directness,
+                "verbosity": self._verbosity, "expressiveness": self._expressiveness,
+                "technicality": self._technicality}
+
+    def adapt_to_audience(self, audience_level: str):
+        """根据听众调整风格"""
+        if audience_level == "expert":
+            self._technicality = 0.8
+            self._formality = 0.7
+        elif audience_level == "general":
+            self._technicality = 0.3
+            self._formality = 0.4
+            self._verbosity = 0.6
+        elif audience_level == "mixed":
+            self._technicality = 0.5
+            self._formality = 0.5
+            self._verbosity = 0.7
+
+    def generate_with_style(self, content: str) -> str:
+        """根据风格调整文本"""
+        if self._formality > 0.7:
+            content = content.replace("我", "笔者").replace("咱们", "我们")
+        if self._directness > 0.7:
+            if not content.endswith("。") and not content.endswith("！"):
+                content = content + "。"
+        if self._verbosity > 0.7 and len(content) < 100:
+            content = content + "此外，我们还需要考虑更多相关因素..."
+        return content
+
+    def to_dict(self) -> Dict:
+        return {"formality": self._formality, "directness": self._directness,
+                "verbosity": self._verbosity, "expressiveness": self._expressiveness,
+                "technicality": self._technicality}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'CommunicationStyle':
+        cs = cls()
+        cs._formality = data.get("formality", 0.5)
+        cs._directness = data.get("directness", 0.5)
+        cs._verbosity = data.get("verbosity", 0.5)
+        cs._expressiveness = data.get("expressiveness", 0.5)
+        cs._technicality = data.get("technicality", 0.5)
+        return cs
+
+
+class CredibilityAssessment:
+    """
+    可信度评估系统——评估其他专家的可信度。
+
+    功能：
+    - 可信度评分
+    - 预测准确性追踪
+    - 可信度更新
+    - 信任网络构建
+    - 声誉追踪
+    """
+
+    def __init__(self):
+        self._credibility: Dict[str, float] = {}
+        self._prediction_history: Dict[str, List[Dict]] = {}
+        self._reputation: Dict[str, float] = {}
+
+    def assess(self, target: str, statement: str, context: str = "") -> float:
+        """评估目标的可信度"""
+        base = self._credibility.get(target, 0.5)
+        # 基于陈述质量调整
+        quality_bonus = 0.0
+        if len(statement) > 50:
+            quality_bonus += 0.05
+        if "因为" in statement and "所以" in statement:
+            quality_bonus += 0.1
+        if "可能" in statement or "也许" in statement:
+            quality_bonus += 0.02
+        new_score = max(0.0, min(1.0, base + quality_bonus))
+        self._credibility[target] = new_score
+        return new_score
+
+    def update_credibility(self, target: str, prediction: bool, actual: bool) -> float:
+        """基于预测准确度更新可信度"""
+        if target not in self._prediction_history:
+            self._prediction_history[target] = []
+        self._prediction_history[target].append({
+            "predicted": prediction, "actual": actual, "timestamp": time.time(),
+        })
+        accuracy = sum(1 for p in self._prediction_history[target]
+                       if p["predicted"] == p["actual"])
+        total = len(self._prediction_history[target])
+        self._credibility[target] = accuracy / max(total, 1)
+        return self._credibility[target]
+
+    def get_credibility(self, target: str) -> float:
+        """获取可信度"""
+        return self._credibility.get(target, 0.5)
+
+    def get_trust_network(self) -> Dict[str, float]:
+        """获取信任网络"""
+        return dict(self._credibility)
+
+    def update_reputation(self, target: str, delta: float):
+        """更新声誉"""
+        old = self._reputation.get(target, 0.0)
+        self._reputation[target] = max(-1.0, min(1.0, old + delta))
+
+    def to_dict(self) -> Dict:
+        return {"credibility": dict(self._credibility), "reputation": dict(self._reputation)}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'CredibilityAssessment':
+        ca = cls()
+        ca._credibility = data.get("credibility", {})
+        ca._reputation = data.get("reputation", {})
+        return ca
+
+
+class PersonaEvolution:
+    """
+    人格进化系统——管理专家人格的渐进式演化。
+
+    功能：
+    - 吸收矩阵管理（其他专家的影响）
+    - 分化程度追踪
+    - 突变事件记录
+    - 立场演化
+    - 人格稳定性评估
+    """
+
+    def __init__(self, original_persona: str = ""):
+        self.original_persona = original_persona
+        self.current_persona = original_persona
+        self.absorption_matrix: Dict[str, float] = {}
+        self.differentiation_level = 0.0
+        self.evolution_history: List[Dict] = []
+        self.mutation_triggers: List[str] = []
+        self.stance_positions: List[Dict] = []
+        self.total_rounds_alive = 0
+        self._stability = 1.0
+        self._evolution_rate = 0.05
+
+    def absorb(self, other_name: str, influence: float):
+        """吸收其他专家的影响"""
+        old = self.absorption_matrix.get(other_name, 0.0)
+        self.absorption_matrix[other_name] = max(0.0, min(1.0, old + influence))
+        self.differentiation_level = min(1.0, self.differentiation_level + influence * 0.1)
+        self._stability = max(0.0, self._stability - influence * 0.05)
+
+    def differentiate(self, delta: float = 0.05):
+        """增加分化程度"""
+        self.differentiation_level = min(1.0, self.differentiation_level + delta)
+
+    def mutate(self, trigger: str, intensity: float = 0.3):
+        """触发人格突变"""
+        self.mutation_triggers.append(trigger)
+        self.differentiation_level = min(1.0, self.differentiation_level + intensity * 0.2)
+        self._stability = max(0.0, self._stability - intensity * 0.3)
+        self.evolution_history.append({
+            "type": "mutation", "trigger": trigger, "intensity": intensity,
+            "round": self.total_rounds_alive, "timestamp": time.time(),
+        })
+
+    def record_stance(self, stance: Dict):
+        """记录立场"""
+        self.stance_positions.append({**stance, "round": self.total_rounds_alive})
+
+    def advance_round(self):
+        """推进一轮"""
+        self.total_rounds_alive += 1
+        self._stability = min(1.0, self._stability + self._evolution_rate)
+
+    def get_stability(self) -> float:
+        """获取人格稳定性"""
+        return self._stability
+
+    def get_evolution_summary(self) -> Dict:
+        """获取演化摘要"""
+        return {
+            "original": self.original_persona[:50],
+            "current": self.current_persona[:50],
+            "differentiation": self.differentiation_level,
+            "stability": self._stability,
+            "absorbed_influences": len(self.absorption_matrix),
+            "mutations": len(self.mutation_triggers),
+            "rounds_alive": self.total_rounds_alive,
+            "stances_recorded": len(self.stance_positions),
+            "top_influences": sorted(self.absorption_matrix.items(),
+                                     key=lambda x: x[1], reverse=True)[:3],
+        }
+
+    def to_dict(self) -> Dict:
+        return {"original_persona": self.original_persona,
+                "current_persona": self.current_persona,
+                "absorption_matrix": dict(self.absorption_matrix),
+                "differentiation_level": self.differentiation_level,
+                "evolution_history": self.evolution_history,
+                "mutation_triggers": self.mutation_triggers,
+                "stance_positions": self.stance_positions,
+                "total_rounds_alive": self.total_rounds_alive,
+                "stability": self._stability}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'PersonaEvolution':
+        pe = cls(data.get("original_persona", ""))
+        pe.current_persona = data.get("current_persona", "")
+        pe.absorption_matrix = data.get("absorption_matrix", {})
+        pe.differentiation_level = data.get("differentiation_level", 0.0)
+        pe.evolution_history = data.get("evolution_history", [])
+        pe.mutation_triggers = data.get("mutation_triggers", [])
+        pe.stance_positions = data.get("stance_positions", [])
+        pe.total_rounds_alive = data.get("total_rounds_alive", 0)
+        pe._stability = data.get("stability", 1.0)
+        return pe
+
+
+class PersonalityTraits:
+    """
+    人格特质系统——五大维度的专家人格特质。
+
+    维度：
+    - 开放性 (Openness): 对新鲜事物的接受程度
+    - 尽责性 (Conscientiousness): 条理性和责任感
+    - 外向性 (Extraversion): 社交活跃度
+    - 宜人性 (Agreeableness): 合作倾向
+    - 神经质 (Neuroticism): 情绪敏感性
+
+    功能：
+    - 特质评分管理
+    - 特质影响行为
+    - 特质演化
+    - 特质组合分析
+    """
+
+    def __init__(self):
+        self.traits = {
+            "openness": random.uniform(0.3, 0.8),
+            "conscientiousness": random.uniform(0.3, 0.8),
+            "extraversion": random.uniform(0.2, 0.7),
+            "agreeableness": random.uniform(0.3, 0.8),
+            "neuroticism": random.uniform(0.1, 0.6),
+        }
+        self._change_rate = 0.02
+        self._history: List[Dict] = []
+
+    def get_traits(self) -> Dict:
+        """获取所有特质"""
+        return dict(self.traits)
+
+    def get_dominant_traits(self, top_n: int = 2) -> List[str]:
+        """获取主导特质"""
+        sorted_t = sorted(self.traits.items(), key=lambda x: x[1], reverse=True)
+        return [t[0] for t in sorted_t[:top_n]]
+
+    def get_personality_type(self) -> str:
+        """获取人格类型描述"""
+        o = self.traits["openness"]
+        c = self.traits["conscientiousness"]
+        e = self.traits["extraversion"]
+        a = self.traits["agreeableness"]
+        n = self.traits["neuroticism"]
+        if o > 0.7 and c > 0.6:
+            return "探索型分析者"
+        elif o > 0.7 and a > 0.6:
+            return "开放型合作者"
+        elif c > 0.7 and n < 0.3:
+            return "稳定型执行者"
+        elif e > 0.6 and a > 0.6:
+            return "社交型协作者"
+        elif o < 0.3 and c > 0.7:
+            return "保守型实干家"
+        elif n > 0.6:
+            return "敏感型思考者"
+        else:
+            return "平衡型参与者"
+
+    def update_trait(self, trait: str, delta: float):
+        """更新特质"""
+        if trait in self.traits:
+            old = self.traits[trait]
+            self.traits[trait] = max(0.0, min(1.0, old + delta))
+            self._history.append({
+                "trait": trait, "from": old, "to": self.traits[trait],
+                "delta": delta, "timestamp": time.time(),
+            })
+
+    def evolve(self, experience_type: str, intensity: float = 0.1):
+        """根据经验类型演化特质"""
+        effects = {
+            "new_experience": {"openness": 0.05},
+            "success": {"conscientiousness": 0.03, "neuroticism": -0.02},
+            "failure": {"neuroticism": 0.04, "conscientiousness": -0.02},
+            "conflict": {"agreeableness": -0.03, "neuroticism": 0.03},
+            "cooperation": {"agreeableness": 0.04, "extraversion": 0.03},
+            "leadership": {"extraversion": 0.04, "conscientiousness": 0.03},
+            "critique": {"openness": -0.02, "neuroticism": 0.02},
+            "praise": {"extraversion": 0.03, "agreeableness": 0.02},
+        }
+        for trait, delta in effects.get(experience_type, {}).items():
+            self.update_trait(trait, delta * intensity)
+
+    def get_trait_influence(self) -> Dict[str, float]:
+        """获取特质对行为的影响"""
+        return {
+            "risk_taking": self.traits["openness"] * 0.6 - self.traits["neuroticism"] * 0.4,
+            "thoroughness": self.traits["conscientiousness"] * 0.8,
+            "initiative": self.traits["extraversion"] * 0.6 + self.traits["openness"] * 0.3,
+            "cooperativeness": self.traits["agreeableness"] * 0.7,
+            "emotional_stability": 1.0 - self.traits["neuroticism"],
+        }
+
+    def to_dict(self) -> Dict:
+        return {"traits": dict(self.traits), "history": self._history[-50:]}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'PersonalityTraits':
+        pt = cls()
+        pt.traits.update(data.get("traits", {}))
+        pt._history = data.get("history", [])
+        return pt
+
+
+class ConversationHistory:
+    """
+    对话历史系统——记录和管理专家的完整对话历史。
+
+    功能：
+    - 对话记录存储
+    - 按轮次/话题检索
+    - 发言统计
+    - 对话模式分析
+    - 沉默期检测
+    """
+
+    def __init__(self, max_history: int = 500):
+        self.max_history = max_history
+        self.entries: List[Dict] = []
+        self._round_index: Dict[int, List[int]] = {}
+        self._topic_index: Dict[str, List[int]] = {}
+
+    def add_entry(self, round_id: int, speech: str, topic: str = "",
+                  speech_type: str = "discussion", metadata: Dict = None) -> int:
+        """添加一条对话记录"""
+        eid = len(self.entries)
+        entry = {"id": eid, "round": round_id, "speech": speech,
+                 "topic": topic, "type": speech_type,
+                 "metadata": metadata or {}, "timestamp": time.time()}
+        self.entries.append(entry)
+        if round_id not in self._round_index:
+            self._round_index[round_id] = []
+        self._round_index[round_id].append(eid)
+        if topic:
+            if topic not in self._topic_index:
+                self._topic_index[topic] = []
+            self._topic_index[topic].append(eid)
+        self._enforce_limit()
+        return eid
+
+    def get_by_round(self, round_id: int) -> List[Dict]:
+        """按轮次获取对话"""
+        indices = self._round_index.get(round_id, [])
+        return [self.entries[i] for i in indices]
+
+    def get_by_topic(self, topic: str) -> List[Dict]:
+        """按话题获取对话"""
+        indices = self._topic_index.get(topic, [])
+        return [self.entries[i] for i in indices]
+
+    def get_recent(self, n: int = 10) -> List[Dict]:
+        """获取最近 n 条对话"""
+        return self.entries[-n:]
+
+    def get_statistics(self) -> Dict:
+        """获取对话统计"""
+        type_counts = Counter(e["type"] for e in self.entries)
+        round_counts = Counter(e["round"] for e in self.entries)
+        total_words = sum(len(e["speech"]) for e in self.entries)
+        return {
+            "total_entries": len(self.entries),
+            "total_rounds": len(self._round_index),
+            "total_topics": len(self._topic_index),
+            "type_distribution": dict(type_counts.most_common()),
+            "avg_speech_length": total_words / max(len(self.entries), 1),
+            "most_active_round": round_counts.most_common(1)[0] if round_counts else None,
+        }
+
+    def detect_silence(self, current_round: int, threshold: int = 3) -> bool:
+        """检测沉默期"""
+        recent_rounds = [r for r in self._round_index if r >= current_round - threshold]
+        return len(recent_rounds) == 0
+
+    def find_patterns(self) -> List[Dict]:
+        """发现对话模式"""
+        patterns = []
+        if len(self.entries) < 5:
+            return patterns
+        speeches = [e["speech"] for e in self.entries[-20:]]
+        avg_len = sum(len(s) for s in speeches) / max(len(speeches), 1)
+        long_speeches = sum(1 for s in speeches if len(s) > avg_len * 1.5)
+        if long_speeches > len(speeches) * 0.5:
+            patterns.append({"type": "verbose", "description": "倾向于详细阐述", "confidence": 0.6})
+        short_speeches = sum(1 for s in speeches if len(s) < avg_len * 0.5)
+        if short_speeches > len(speeches) * 0.3:
+            patterns.append({"type": "concise", "description": "倾向于简洁表达", "confidence": 0.5})
+        return patterns
+
+    def _enforce_limit(self):
+        while len(self.entries) > self.max_history:
+            removed = self.entries.pop(0)
+            rid = removed["round"]
+            if rid in self._round_index and self._round_index[rid]:
+                self._round_index[rid].pop(0)
+            topic = removed.get("topic", "")
+            if topic in self._topic_index and self._topic_index[topic]:
+                self._topic_index[topic].pop(0)
+
+    def to_dict(self) -> Dict:
+        return {"entries": self.entries[-200:], "max_history": self.max_history}
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'ConversationHistory':
+        ch = cls(max_history=data.get("max_history", 500))
+        ch.entries = data.get("entries", [])
+        for e in ch.entries:
+            rid = e.get("round")
+            if rid is not None:
+                if rid not in ch._round_index:
+                    ch._round_index[rid] = []
+                ch._round_index[rid].append(e["id"])
+            topic = e.get("topic", "")
+            if topic:
+                if topic not in ch._topic_index:
+                    ch._topic_index[topic] = []
+                ch._topic_index[topic].append(e["id"])
+        return ch
