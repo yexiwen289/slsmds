@@ -1042,13 +1042,37 @@ class Game:
                         level = result.get("level", 0)
                         synthesis = result.get("synthesis", "")
                         metrics = result.get("metrics", {})
+                        is_emergent = result.get("is_emergent", False)
+                        verification = result.get("verification", {})
+                        quality = result.get("quality", {})
+                        calib = result.get("calibrator_params", {})
                         if synthesis:
+                            emoji = "🧠" if is_emergent else "🔄"
                             _stat_line([
-                                (f"讨论引擎 L{level}",
+                                (f"{emoji} 讨论引擎 L{level}",
                                  f"{metrics.get('density', 0):.2f}密度 "
                                  f"{metrics.get('communities', 0)}社区 "
                                  f"{metrics.get('opposition_pairs', 0)}对立")
                             ])
+                            if is_emergent:
+                                _stat_line([
+                                    ("P0涌现",
+                                     f"新颖{verification.get('novelty', 0):.2f} "
+                                     f"深度{verification.get('depth', 0):.2f}")
+                                ])
+                            if quality:
+                                _stat_line([
+                                    ("P3质量",
+                                     f"连贯{quality.get('coherence', 0):.2f} "
+                                     f"深度{quality.get('depth', 0):.2f} "
+                                     f"新颖{quality.get('novelty', 0):.2f}")
+                                ])
+                            if calib:
+                                _stat_line([
+                                    ("P3参数",
+                                     f"放大率{calib.get('amplification_ratio', 0):.0f}x "
+                                     f"温度{calib.get('synthesis_temperature', 0):.2f}")
+                                ])
                     except Exception as e:
                         print(f"  ⚠️ 讨论引擎分析异常: {str(e)[:60]}")
 
