@@ -5497,30 +5497,19 @@ def _startup_sequence():
     typewrite(f"  {C_GREEN('✦')} {C_BOLD('SLSMDS v2.0')} {C_DIM('涌现拓扑引擎已部署，等待指令')} {C_GREEN('✦')}", delay=0.03)
     time.sleep(0.5)
 
-    # ── 身份验证（基于意识框架的身份识别）──
-    _empty_line()
-    w = _box(C_YELLOW(' 身份验证 '))
-    _empty_line()
-    _padded(C_BOLD('请输入密码以解锁硬编码 API 功能'))
-    _padded(C_DIM('（密码错误时需自行配置 API 密钥）'))
-    _empty_line()
-    print(f"{N2}  {C_CYAN('▸')} {C_BOLD('密码')}  ", end='')
-    from . import auth
-    ok = auth.authenticate()
-    if ok:
-        print(f"{C_GREEN('✔')}")
+    # ── API 配置引导（无配置时提示）──
+    _settings_check = _load_settings()
+    _has_api_key = bool(_settings_check.get("api_key", ""))
+    if not _has_api_key:
         _empty_line()
-        _padded(f"{C_GREEN('✓')} {C_BOLD('身份验证通过')} {C_DIM('将使用硬编码 API')}")
+        w = _box(C_YELLOW(' API 配置引导 '))
         _empty_line()
-        _padded(f"{C_GREEN('✦')} {C_BOLD('欢迎回来，管理员')} {C_GREEN('✦')}")
-    else:
-        print(f"{C_RED('✘')}")
+        _padded(C_BOLD('欢迎使用 SLSMDS v2.0'))
         _empty_line()
-        _padded(f"{C_RED('✗')} {C_BOLD('身份验证失败')} {C_DIM('请自行配置 API 密钥')}")
+        _padded(C_DIM('请先配置你的 API 密钥才能开始讨论'))
+        _padded(C_DIM('可在主菜单随时通过 [3] 设置 → [1] API 配置 修改'))
         _empty_line()
-        _padded(f"{C_YELLOW('⚠')} {C_DIM('之后可通过主菜单 [3] 设置 → [1] API 配置 来修改')}")
-        _empty_line()
-        _padded(f"{C_YELLOW('▸')} {C_BOLD('是否现在配置 API 密钥？')}  {C_DIM('[y] 是  [n] 跳过')}")
+        _padded(f"{C_YELLOW('▸')} {C_BOLD('是否现在配置 API？')}  {C_DIM('[y] 是  [n] 跳过')}")
         _sep(w)
         print(f"{N2}  ", end='')
         cfg_now = input().strip().lower()
@@ -5533,15 +5522,18 @@ def _startup_sequence():
                 input()
             except (EOFError, KeyboardInterrupt):
                 pass
-            return
-    _empty_line()
-    _close_box()
-    _empty_line()
-    _padded(C_DIM("按下 [Enter] 进入主菜单..."))
-    try:
-        input()
-    except (EOFError, KeyboardInterrupt):
-        pass
+        else:
+            _empty_line()
+            _close_box()
+            _empty_line()
+            _padded(C_DIM("按下 [Enter] 进入主菜单..."))
+            try:
+                input()
+            except (EOFError, KeyboardInterrupt):
+                pass
+    else:
+        _empty_line()
+        _padded(C_GREEN('✔ API 配置已就绪，自动跳过引导'))
 
 
 def _banner():
@@ -5583,17 +5575,12 @@ def _main_tui():
         print(f"{N2}  {C_MAGENTA(' [5] ')}  {C_BOLD('自我意识培养')}  {C_DIM('自动运行多轮自指性讨论')}")
         print(f"{N2}  {C_BRED(' [4] ')}  {C_BOLD('退出系统')}      {C_DIM('结束程序')}")
         _sep(w)
-        from . import auth
-        if auth.AUTHENTICATED:
-            auth_status = C_GREEN('✔ 已认证')
-        else:
-            auth_status = f"{C_RED('✗ 未认证')}  {C_YELLOW('配置 API → [3]')}"
-        print(f"{N2}  {C_DIM('认证:')} {auth_status}")
         settings = _load_settings()
-        provider = settings.get("provider", "deepseek")
+        provider = settings.get("provider", "custom")
         model = settings.get("model", "deepseek-v4-flash")
-        src = C_GREEN("默认") if settings.get("use_default", True) else C_CYAN("自定义")
-        print(f"{N2}  {C_DIM('当前:')} {C_BOLD(provider)}/{C_BOLD(model)}  {C_DIM('来源:')} {src}")
+        ak = settings.get("api_key", "")
+        key_status = C_GREEN("✔ 已配置") if ak else C_RED("✗ 未配置")
+        print(f"{N2}  {C_DIM('API:')} {key_status}  {C_DIM('模型:')} {C_BOLD(provider)}/{C_BOLD(model)}")
         # 显示已启用的高级机制
         extra = []
         if settings.get("enable_emergence_engine", False): extra.append("涌现引擎")
@@ -5662,19 +5649,18 @@ _SETTINGS_FILE = "tui_settings.json"
 
 _DEFAULT_SETTINGS = {
     # ── API 配置 ──
-    "provider": "deepseek",
+    "provider": "custom",
     "model": "deepseek-v4-flash",
     "api_key": "",
     "base_url": "",
-    "use_default": True,
 
-    # ── 备用 API 配置（默认 API 用尽时自动回退）──
-    "fallback_base_url": _get_b64_prompt("FALLBACK_BASE_URL"),
-    "fallback_api_key": _get_b64_prompt("FALLBACK_API_KEY"),
-    "fallback_model": _get_b64_prompt("FALLBACK_MODEL"),
-    "third_base_url": _get_b64_prompt("THIRD_BASE_URL"),
-    "third_api_key": _get_b64_prompt("THIRD_API_KEY"),
-    "third_model": _get_b64_prompt("THIRD_MODEL"),
+    # ── 备用 API 配置（主 API 用尽时自动回退）──
+    "fallback_base_url": "",
+    "fallback_api_key": "",
+    "fallback_model": "",
+    "third_base_url": "",
+    "third_api_key": "",
+    "third_model": "",
 
     # ── 玩家默认配置 ──
     "thinking": "disabled",
@@ -5757,43 +5743,7 @@ def _reset_settings():
 
 
 def _apply_settings(settings: dict) -> dict:
-    """根据设置生成 LLM 客户端配置（无提供商限制）"""
-    from . import auth
-    # 未认证用户：禁止使用硬编码 API，必须自行配置
-    if not auth.AUTHENTICATED:
-        settings["use_default"] = False
-        return {
-            "provider": "custom",
-            "model": settings.get("model", ""),
-            "api_key": settings.get("api_key", ""),
-            "base_url": settings.get("base_url", ""),
-            "temperature": 0.7,
-            "max_tokens": 4096,
-            "supports_thinking": False,
-            "fallback_base_url": settings.get("fallback_base_url", ""),
-            "fallback_api_key": settings.get("fallback_api_key", ""),
-            "fallback_model": settings.get("fallback_model", ""),
-            "third_base_url": settings.get("third_base_url", ""),
-            "third_api_key": settings.get("third_api_key", ""),
-            "third_model": settings.get("third_model", ""),
-        }
-    if settings.get("use_default", True):
-        return {
-            "provider": settings.get("provider", "deepseek"),
-            "model": settings.get("model", "deepseek-v4-flash"),
-            "api_key": "",
-            "base_url": "",
-            "temperature": 0.7,
-            "max_tokens": 4096,
-            "supports_thinking": True,
-            "fallback_base_url": settings.get("fallback_base_url", _get_b64_prompt("FALLBACK_BASE_URL")),
-            "fallback_api_key": settings.get("fallback_api_key", _get_b64_prompt("FALLBACK_API_KEY")),
-            "fallback_model": settings.get("fallback_model", _get_b64_prompt("FALLBACK_MODEL")),
-            "third_base_url": settings.get("third_base_url", _get_b64_prompt("THIRD_BASE_URL")),
-            "third_api_key": settings.get("third_api_key", _get_b64_prompt("THIRD_API_KEY")),
-            "third_model": settings.get("third_model", _get_b64_prompt("THIRD_MODEL")),
-        }
-    # 自定义设置
+    """根据用户配置生成 LLM 客户端配置"""
     return {
         "provider": "custom",
         "model": settings.get("model", "deepseek-v4-flash"),
@@ -5802,12 +5752,12 @@ def _apply_settings(settings: dict) -> dict:
         "temperature": 0.7,
         "max_tokens": 4096,
         "supports_thinking": False,
-        "fallback_base_url": settings.get("fallback_base_url", _get_b64_prompt("FALLBACK_BASE_URL")),
-        "fallback_api_key": settings.get("fallback_api_key", _get_b64_prompt("FALLBACK_API_KEY")),
-        "fallback_model": settings.get("fallback_model", _get_b64_prompt("FALLBACK_MODEL")),
-        "third_base_url": settings.get("third_base_url", _get_b64_prompt("THIRD_BASE_URL")),
-        "third_api_key": settings.get("third_api_key", _get_b64_prompt("THIRD_API_KEY")),
-        "third_model": settings.get("third_model", _get_b64_prompt("THIRD_MODEL")),
+        "fallback_base_url": settings.get("fallback_base_url", ""),
+        "fallback_api_key": settings.get("fallback_api_key", ""),
+        "fallback_model": settings.get("fallback_model", ""),
+        "third_base_url": settings.get("third_base_url", ""),
+        "third_api_key": settings.get("third_api_key", ""),
+        "third_model": settings.get("third_model", ""),
     }
 
 
@@ -5820,21 +5770,15 @@ def _settings_menu():
         print()
         w = _box(C_YELLOW(" 设置 "))
 
-        use_default = settings.get("use_default", True)
-        provider = settings.get("provider", "deepseek")
+        provider = settings.get("provider", "custom")
         model = settings.get("model", "deepseek-v4-flash")
         thinking = settings.get("thinking", "disabled")
-
-        # 当前配置摘要
-        if use_default:
-            api_source = C_GREEN("硬编码默认值")
-        else:
-            api_source = C_CYAN("自定义")
+        ak = settings.get("api_key", "")
+        masked = ak[:8] + "..." if len(ak) > 12 else "(空)"
 
         print(f"{N2}  {C_DIM('API 配置:')}")
-        print(f"{N2}    {C_DIM('来源:')}    {api_source}")
-        print(f"{N2}    {C_DIM('供应商:')}  {C_BOLD(provider)}")
         print(f"{N2}    {C_DIM('模型:')}    {C_BOLD(model)}")
+        print(f"{N2}    {C_DIM('API Key:')} {C_DIM(masked)}")
         print(f"{N2}    {C_DIM('思考:')}    {thinking}")
         _sep(w)
         print(f"{N2}  {C_BGREEN(' [1] ')}  API 配置         {C_DIM('供应商/模型/API 密钥')}")
@@ -5876,63 +5820,44 @@ def _settings_menu():
 
 
 def _api_config_menu():
-    """API 配置子菜单（无提供商限制）"""
+    """API 配置子菜单"""
     settings = _load_settings()
-    from . import auth
-    if not auth.AUTHENTICATED:
-        settings["use_default"] = False
-        _save_settings(settings)
-        print(f"\n{N2}  {C_YELLOW('⚠')} {C_BOLD('身份未认证')}，已自动切换到自定义 API 模式")
-        print(f"{N2}  {C_DIM('请在下方的 [3] 和 [4] 中填入你的 API 密钥和地址')}")
-        _pause()
     while True:
         os.system("cls" if os.name == "nt" else "clear")
         _banner()
         print()
         w = _box(C_BGREEN(" API 配置 "))
 
-        use_default = settings.get("use_default", True)
         model = settings.get("model", "deepseek-v4-flash")
         thinking = settings.get("thinking", "disabled")
+        ak = settings.get("api_key", "")
+        masked = ak[:8] + "..." if len(ak) > 12 else "(空)"
+        bu = settings.get("base_url", "")
 
-        if use_default:
-            api_source = C_GREEN("硬编码默认值")
-        else:
-            api_source = C_CYAN("自定义")
-
-        print(f"{N2}  {C_DIM('来源:')}    {api_source}")
         print(f"{N2}  {C_DIM('模型:')}    {C_BOLD(model)}")
         print(f"{N2}  {C_DIM('思考:')}    {thinking}")
-        if not use_default:
-            ak = settings.get("api_key", "")
-            masked = ak[:8] + "..." if len(ak) > 12 else "(空)"
-            print(f"{N2}  {C_DIM('API Key:')} {C_DIM(masked)}")
-            bu = settings.get("base_url", "")
-            print(f"{N2}  {C_DIM('Base URL:')} {C_DIM(bu if bu else '(空)')}")
+        print(f"{N2}  {C_DIM('API Key:')} {C_DIM(masked)}")
+        print(f"{N2}  {C_DIM('Base URL:')} {C_DIM(bu if bu else '(空)')}")
         # 显示备用 API 信息
         fb_url = settings.get("fallback_base_url", "")
         fb_key = settings.get("fallback_api_key", "")
         fb_masked = fb_key[:8] + "..." if len(fb_key) > 12 else "(空)"
-        print(f"{N2}  {C_DIM('备用 API:')} {C_DIM(fb_url if fb_url else '(默认)')}  {C_DIM(fb_masked)}")
+        print(f"{N2}  {C_DIM('备用 API:')} {C_DIM(fb_url if fb_url else '(空)')}  {C_DIM(fb_masked)}")
         td_url = settings.get("third_base_url", "")
-        print(f"{N2}  {C_DIM('二级 API:')} {C_DIM(td_url if td_url else '(默认)')}")
+        print(f"{N2}  {C_DIM('二级 API:')} {C_DIM(td_url if td_url else '(空)')}")
         _sep(w)
         print(f"{N2}  {C_CYAN(' [1] ')}  切换模型       {C_DIM(f'当前: {model}')}")
-        api_source_label = "默认" if use_default else "自定义"
-        print(f"{N2}  {C_YELLOW(' [2] ')}  切换 API 来源  {C_DIM(f'当前: {api_source_label}')}")
-        if not use_default:
-            print(f"{N2}  {C_MAGENTA(' [3] ')}  设置 API Key   {C_DIM('自定义密钥')}")
-            print(f"{N2}  {C_BLUE(' [4] ')}  设置 Base URL  {C_DIM('自定义地址')}")
-        print(f"{N2}  {C_GREEN(' [5] ')}  设置备用 API  {C_DIM('一级回退接口地址/密钥')}")
-        print(f"{N2}  {C_MAGENTA(' [6] ')}  设置二级 API  {C_DIM('二级回退接口地址/密钥')}")
+        print(f"{N2}  {C_MAGENTA(' [2] ')}  设置 API Key   {C_DIM('填入你的 API 密钥')}")
+        print(f"{N2}  {C_BLUE(' [3] ')}  设置 Base URL  {C_DIM('填入 API 接口地址')}")
+        print(f"{N2}  {C_GREEN(' [4] ')}  设置备用 API  {C_DIM('一级回退接口地址/密钥')}")
+        print(f"{N2}  {C_MAGENTA(' [5] ')}  设置二级 API  {C_DIM('二级回退接口地址/密钥')}")
         print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
         _close_box(w)
         print()
         print(f"  {C_YELLOW('▸')}  ", end="")
-        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-6/q]')}: ").strip().lower()
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-5/q]')}: ").strip().lower()
 
         if choice == "1":
-            # 切换模型（无提供商限制，直接列出所有常用模型）
             models = ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-reasoner",
                       "qwen-plus", "qwen-max", "qwen-turbo", "gpt-3.5-turbo", "gpt-4"]
             current = models.index(model) if model in models else 0
@@ -5940,27 +5865,21 @@ def _api_config_menu():
             settings["model"] = next_m
             _save_settings(settings)
         elif choice == "2":
-            settings["use_default"] = not settings.get("use_default", True)
-            if settings["use_default"]:
-                settings["api_key"] = ""
-                settings["base_url"] = ""
-            _save_settings(settings)
-        elif choice == "3" and not settings.get("use_default", True):
             print(f"\n{N2}  ", end="")
             new_key = input(f"{C_CYAN('API Key')}: ").strip()
             if new_key:
                 settings["api_key"] = new_key
                 _save_settings(settings)
-        elif choice == "4" and not settings.get("use_default", True):
+        elif choice == "3":
             print(f"\n{N2}  ", end="")
             new_url = input(f"{C_CYAN('Base URL')}: ").strip()
             if new_url:
                 settings["base_url"] = new_url
                 _save_settings(settings)
-        elif choice == "5":
+        elif choice == "4":
             print(f"\n{N2}  {C_DIM('备用 API：当主 API 用尽时自动回退到此接口')}")
             print(f"{N2}  ", end="")
-            new_fb_url = input(f"{C_CYAN('备用 Base URL')} [{C_DIM(settings.get('fallback_base_url', _get_b64_prompt('FALLBACK_BASE_URL')))}]: ").strip()
+            new_fb_url = input(f"{C_CYAN('备用 Base URL')}: ").strip()
             if new_fb_url:
                 settings["fallback_base_url"] = new_fb_url
             print(f"{N2}  ", end="")
@@ -5968,16 +5887,16 @@ def _api_config_menu():
             if new_fb_key:
                 settings["fallback_api_key"] = new_fb_key
             print(f"{N2}  ", end="")
-            new_fb_model = input(f"{C_CYAN('备用模型')} [{C_DIM(settings.get('fallback_model', _get_b64_prompt('FALLBACK_MODEL')))}]: ").strip()
+            new_fb_model = input(f"{C_CYAN('备用模型')}: ").strip()
             if new_fb_model:
                 settings["fallback_model"] = new_fb_model
             _save_settings(settings)
             print(f"{N2}  {C_GREEN('✓')} 备用 API 已更新")
             _pause()
-        elif choice == "6":
-            print(f"\n{N2}  {C_DIM('二级 API：一级回退（星火）也用尽时使用（官方 DeepSeek）')}")
+        elif choice == "5":
+            print(f"\n{N2}  {C_DIM('二级 API：一级回退也用尽时使用')}")
             print(f"{N2}  ", end="")
-            new_td_url = input(f"{C_CYAN('二级 Base URL')} [{C_DIM(settings.get('third_base_url', _get_b64_prompt('THIRD_BASE_URL')))}]: ").strip()
+            new_td_url = input(f"{C_CYAN('二级 Base URL')}: ").strip()
             if new_td_url:
                 settings["third_base_url"] = new_td_url
             print(f"{N2}  ", end="")
@@ -5985,7 +5904,7 @@ def _api_config_menu():
             if new_td_key:
                 settings["third_api_key"] = new_td_key
             print(f"{N2}  ", end="")
-            new_td_model = input(f"{C_CYAN('二级模型')} [{C_DIM(settings.get('third_model', _get_b64_prompt('THIRD_MODEL')))}]: ").strip()
+            new_td_model = input(f"{C_CYAN('二级模型')}: ").strip()
             if new_td_model:
                 settings["third_model"] = new_td_model
             _save_settings(settings)

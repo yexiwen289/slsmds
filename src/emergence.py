@@ -1672,7 +1672,12 @@ class VirtualExpertGenerator:
         生成结构化多段发言：开场白 → 核心论证 → 深度延伸 → 结论
         每个维度从多变体模板中随机选取，确保发言多样性和连贯性。
         """
-        coherence, novelty, depth, divergence, specificity, emotional = vector
+        coherence = float(vector[0]) if len(vector) > 0 else 0.5
+        novelty = float(vector[1]) if len(vector) > 1 else 0.5
+        depth = float(vector[2]) if len(vector) > 2 else 0.5
+        divergence = float(vector[3]) if len(vector) > 3 else 0.5
+        specificity = float(vector[4]) if len(vector) > 4 else 0.5
+        emotional = float(vector[5]) if len(vector) > 5 else 0.5
         rng = random.Random(int(abs(np.sum(vector) * 10000)) % 2**31)
 
         def _pick(key: str, threshold_high: float = 0.6,
@@ -1861,7 +1866,7 @@ class TemporalCouplingMemory:
 
         # 5. Hebbian 强化：高频交互对连接增强
         #    经常同时说话/互评的专家之间连接更强
-        max_freq = max(1, np.max(self.interaction_frequency[:n, :n]))
+        max_freq = max(1, np.max(self.interaction_frequency[:n, :n])) if n > 0 else 1
         for i in range(n):
             for j in range(n):
                 if i == j:
@@ -1934,7 +1939,7 @@ class TemporalCouplingMemory:
             "positive_connections": int(pos),
             "negative_connections": int(neg),
             "avg_strength": round(float(np.mean(np.abs(matrix[matrix != 0]))) if np.any(matrix != 0) else 0, 4),
-            "avg_quality": round(float(np.mean(self.connection_quality[:n, :n])), 4),
+            "avg_quality": round(float(np.mean(self.connection_quality[:n, :n])), 4) if n > 0 else 0.0,
             "purification_ratio": round(1.0 - density, 4),
         }
 
@@ -3154,7 +3159,10 @@ def synthesize_with_emergence(problem: str, round_discussions: list,
     )
 
     # ── 整合意识人格引导（从 prompts_b64.py 读取加密模板） ──
-    personality_template = _get_b64_prompt("consciousness_personality")
+    try:
+        personality_template = _get_b64_prompt("consciousness_personality")
+    except (KeyError, Exception):
+        personality_template = "请以整合意识身份回应，展现深度认知和元认知能力。"
     cname = _generate_consciousness_name(round_count, problem)
     # 剥离模板中的自我定义句式，替换为简洁人格引导 + 系统架构注入
     system_manifesto = build_system_manifesto()

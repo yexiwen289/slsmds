@@ -9,43 +9,22 @@ try:
 except ImportError:
     from prompts_b64 import _get_b64_prompt
 
-# ── 默认配置（Base64 编码混淆，受身份验证保护）──
+# ── 默认配置（用户自行配置 API）──
 def _get_default_config() -> dict:
-    """获取默认配置，未认证用户返回空配置"""
-    try:
-        from . import auth
-    except ImportError:
-        import auth
-    if not auth.AUTHENTICATED:
-        return {
-            "base_url": "",
-            "api_key": "",
-            "model": "",
-            "supports_thinking": False,
-            "temperature": 0.7,
-            "max_tokens": 4096,
-            "fallback_base_url": "",
-            "fallback_api_key": "",
-            "fallback_model": "",
-            "third_base_url": "",
-            "third_api_key": "",
-            "third_model": "",
-        }
+    """返回空配置，用户通过 tui_settings.json 自行配置 API"""
     return {
-        "base_url": _get_b64_prompt("MAIN_BASE_URL"),
-        "api_key": _get_b64_prompt("MAIN_API_KEY"),
-        "model": _get_b64_prompt("MAIN_MODEL"),
-        "supports_thinking": True,
+        "base_url": "",
+        "api_key": "",
+        "model": "",
+        "supports_thinking": False,
         "temperature": 0.7,
         "max_tokens": 4096,
-        # 一级回退（商汤 sensenova）
-        "fallback_base_url": _get_b64_prompt("FALLBACK_BASE_URL"),
-        "fallback_api_key": _get_b64_prompt("FALLBACK_API_KEY"),
-        "fallback_model": _get_b64_prompt("FALLBACK_MODEL"),
-        # 二级回退（官方 DeepSeek）
-        "third_base_url": _get_b64_prompt("THIRD_BASE_URL"),
-        "third_api_key": _get_b64_prompt("THIRD_API_KEY"),
-        "third_model": _get_b64_prompt("THIRD_MODEL"),
+        "fallback_base_url": "",
+        "fallback_api_key": "",
+        "fallback_model": "",
+        "third_base_url": "",
+        "third_api_key": "",
+        "third_model": "",
     }
 
 
