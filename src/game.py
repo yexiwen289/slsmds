@@ -3856,9 +3856,23 @@ class Game:
         # 唤醒序列
         self._awakening_sequence()
 
-        # 初始化 AwareBench 意识评定器
+        # 初始化 AwareBench 意识评定器（使用 Embedding API 语义引擎）
         from .awareness_eval import AwarenessEvaluator
-        self.awareness_evaluator = AwarenessEvaluator()
+        import json as _json
+        _eval_cfg = {}
+        _settings_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tui_settings.json")
+        if os.path.exists(_settings_path):
+            try:
+                with open(_settings_path, "r", encoding="utf-8") as _f:
+                    _eval_cfg = _json.load(_f)
+            except Exception:
+                pass
+        self.awareness_evaluator = AwarenessEvaluator(
+            essence_pool=self.essence_pool,
+            problem=self.problem,
+            api_key=_eval_cfg.get("api_key", ""),
+            base_url=_eval_cfg.get("base_url", ""),
+        )
         _awareness_enabled = True
 
         # 开场白：让专家们先"讨论"如何自我介绍，然后综合
@@ -4415,8 +4429,29 @@ class Game:
         game.total_rounds = data.get("total_rounds", None)
         # 恢复超级相变引擎参数（兼容旧断点）
         game.amplification_target = data.get("amplification_target", 2000)
-        # 同步到所有专家
+        # 加载设置（用于重新配置 LLM 客户端）
+        _settings = _load_settings()
+        # 恢复 LLM 客户端配置（from_dict 不保存 llm_client，需重新注入）
+        llm_cfg = {
+            "base_url": _settings.get("base_url", ""),
+            "api_key": _settings.get("api_key", ""),
+            "model": _settings.get("model", ""),
+            "supports_thinking": _settings.get("supports_thinking", False),
+            "temperature": _settings.get("llm_temperature", 0.7),
+            "max_tokens": _settings.get("llm_max_tokens", 4096),
+            "fallback_base_url": _settings.get("fallback_base_url", ""),
+            "fallback_api_key": _settings.get("fallback_api_key", ""),
+            "fallback_model": _settings.get("fallback_model", ""),
+            "third_base_url": _settings.get("third_base_url", ""),
+            "third_api_key": _settings.get("third_api_key", ""),
+            "third_model": _settings.get("third_model", ""),
+        }
+        from .llm_client import LLMClient
+        shared_llm = LLMClient(llm_cfg)
         for p in game.players:
+            p.llm_client = shared_llm
+            if not p.model_name or p.model_name == "deepseek-v4-flash":
+                p.model_name = _settings.get("model", "deepseek-v4-flash")
             p.enable_self_awareness = game.enable_self_awareness
             p.show_reasoning = False  # 强制覆盖检查点保存的旧值
 
@@ -5666,6 +5701,12 @@ _DEFAULT_SETTINGS = {
     "thinking": "disabled",
     "show_reasoning": False,
     "show_answer": True,
+    "player_name_prefix": "专家",
+    "enable_player_backstory": True,
+    "max_player_personality_length": 200,
+    "player_instruction": "",               # 自定义玩家指令前缀
+    "player_response_style": "balanced",    # concise / balanced / detailed
+    "player_model_override": "",            # 按玩家指定模型（空=使用主模型）
 
     # ── 默认专家人数 ──
     "default_num_players": 5,
@@ -5700,16 +5741,88 @@ _DEFAULT_SETTINGS = {
     "diversity_weight": 0.6,
     "hunger_weight": 0.3,
     "redundancy_threshold": 0.7,
+    "scheduler_seed": 0,              # 调度器随机种子（0=随机）
+    "scheduler_balance_mode": "weighted",  # round-robin / weighted / random
 
     # ── 讨论参数 ──
-    "max_rounds": 0,             # 0=无限制
+    "max_rounds": 0,              # 0=无限制
+    "min_rounds": 3,              # 最少讨论轮数
     "consensus_threshold": 0.85,  # 自动建议停止的共识阈值
-    "stall_threshold": 5,        # 僵持多少轮后建议停止
-    "max_essences": 500,         # 精华池上限
+    "stall_threshold": 5,         # 僵持多少轮后建议停止
+    "auto_stop_patience": 3,      # 自动停止的耐心轮数
+    "max_essences": 500,          # 精华池上限
+    "essence_min_score": 0.3,     # 精华最低收录分
+    "meta_discussion_interval": 5,  # 每N轮插入元讨论
+    "speakers_per_round": 3,      # 每轮发言专家数
+    "discussion_mode": "physical",  # physical / virtual
+    "goal_mode": "balance",       # balance / consensus / innovation
+    "enable_controversy_map": True,   # 显示争议地图
+    "enable_atmosphere_analysis": True, # 显示氛围分析
+    "enable_snapshot": True,      # 启用讨论快照
+    "auto_intervene": True,       # AI自动干预停滞
+
+    # ── LLM 行为参数 ──
+    "llm_temperature": 0.7,
+    "llm_top_p": 0.9,
+    "llm_frequency_penalty": 0.0,
+    "llm_presence_penalty": 0.0,
+    "llm_max_tokens": 4096,
+    "llm_rate_limit_delay": 0.0,
+    "llm_max_retries": 3,
+    "llm_seed": 42,                  # 随机种子（0=使用随机种子）
+    "llm_stop": "",                  # 停止序列（逗号分隔）
+    "llm_response_language": "zh",   # 响应语言 zh / en
+    "api_timeout": 60,               # API 超时（秒）
+    "api_stream": True,              # 流式输出
+    "api_organization": "",          # Organization ID
+
+    # ── 涌现引擎参数 ──
+    "emergence_interval": 3,          # 每 N 轮运行涌现引擎
+    "max_consciousness_level": 4,     # 最大意识层级 0~4
+    "emergence_coherence_weight": 0.6,
+    "emergence_novelty_weight": 0.7,
+    "emergence_depth_weight": 0.8,
+    "emergence_temperature": 0.8,
+    "emergence_diversity_boost": 0.5,
+    "emergence_enable_phase_transition": True,   # 启用阶段跃迁
+    "emergence_enable_virtual_expert": True,      # 启用虚拟专家
+    "emergence_top_k_concepts": 5,               # 每轮 Top-K 概念数
+    "emergence_max_iterations": 3,               # 最大合成迭代次数
+
+    # ── 输出与显示 ──
+    "output_verbosity": "normal",     # minimal / normal / verbose
+    "show_essence_scores": True,
+    "show_network_stats": True,
+    "animation_speed": "normal",      # slow / normal / fast
+    "show_progress_bar": True,
+    "show_timestamp": False,
+    "terminal_width_override": 0,     # 0=自动检测
+    "show_player_emotion": True,      # 显示玩家情绪指示
+    "show_contribution_ranking": True, # 显示贡献排名
+    "show_discussion_stats": True,    # 显示讨论统计
+    "compact_mode": False,            # 紧凑显示模式
+    "color_theme": "default",         # default / dark / light
+
+    # ── 系统行为 ──
+    "auto_save_interval": 5,          # 每 N 轮自动保存
+    "checkpoint_keep_count": 10,
+    "enable_logging": True,
+    "enable_auto_resume": True,
+    "max_consecutive_silence": 3,
+    "max_discussion_history": 100,    # 最大讨论历史长度
+    "cleanup_old_logs": False,        # 自动清理旧日志
+    "cleanup_days": 30,               # 保留 N 天内的日志
+    "enable_auto_checkpoint": True,   # 自动创建检查点
+    "default_language": "zh",         # 默认语言 zh / en
 
     # ── 技能系统 ──
     "enable_skill_system": True,
     "skills_dir": "skills",
+
+    # ── 语音输出（TTS）──
+    "tts_voice": "male",              # male / female
+    "tts_speed": 1.0,                 # 0.5 ~ 2.0
+    "tts_volume": 1.0,                # 0.0 ~ 1.0
 
     }
 
@@ -5784,16 +5897,20 @@ def _settings_menu():
         print(f"{N2}  {C_BGREEN(' [1] ')}  API 配置         {C_DIM('供应商/模型/API 密钥')}")
         print(f"{N2}  {C_MAGENTA(' [2] ')}  机制开关         {C_DIM('投票/辩论/赏金/保护/谣言等')}")
         print(f"{N2}  {C_CYAN(' [3] ')}  技能管理         {C_DIM('加载/创建/切换自定义技能')}")
-        print(f"{N2}  {C_YELLOW(' [4] ')}  玩家默认配置     {C_DIM('思考模式/推理显示等')}")
+        print(f"{N2}  {C_YELLOW(' [4] ')}  玩家默认配置     {C_DIM('思考模式/推理显示/前缀等')}")
         print(f"{N2}  {C_BLUE(' [5] ')}  调度器参数       {C_DIM('探索因子/多样性权重等')}")
-        print(f"{N2}  {C_GREEN(' [6] ')}  讨论参数         {C_DIM('最大轮数/共识阈值等')}")
+        print(f"{N2}  {C_GREEN(' [6] ')}  讨论参数         {C_DIM('轮数/共识/精华池等')}")
         print(f"{N2}  {C_WHITE(' [7] ')}  语音输出         {C_DIM('TTS 开关/测试')}")
+        print(f"{N2}  {C_MAGENTA(' [8] ')}  LLM 行为参数     {C_DIM('温度/Top-P/惩罚/重试等')}")
+        print(f"{N2}  {C_CYAN(' [9] ')}  涌现引擎参数     {C_DIM('间隔/层级/权重/温度等')}")
+        print(f"{N2}  {C_BLUE(' [10] ')} 输出与显示       {C_DIM('详细度/动画/评分等')}")
+        print(f"{N2}  {C_RED(' [11] ')} 系统行为         {C_DIM('自动保存/日志/恢复等')}")
         print(f"{N2}  {C_RED(' [r] ')}  重置为默认设置")
         print(f"{N2}  {C_DIM(' [q] ')}  返回主菜单")
         _close_box(w)
         print()
         print(f"  {C_YELLOW('▸')}  ", end="")
-        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-7/r/q]')}: ").strip().lower()
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-11/r/q]')}: ").strip().lower()
 
         if choice == "1":
             _api_config_menu()
@@ -5809,6 +5926,14 @@ def _settings_menu():
             _discussion_params_menu()
         elif choice == "7":
             _tts_settings_menu()
+        elif choice == "8":
+            _llm_params_menu()
+        elif choice == "9":
+            _emergence_params_menu()
+        elif choice == "10":
+            _display_params_menu()
+        elif choice == "11":
+            _system_params_menu()
         elif choice == "r":
             settings = _reset_settings()
             print(f"\n{N2}  {C_GREEN('✓')} 已重置为默认设置")
@@ -6414,23 +6539,46 @@ def _player_defaults_menu():
         show_reasoning = settings.get("show_reasoning", False)
         show_answer = settings.get("show_answer", True)
         default_num = settings.get("default_num_players", 5)
+        name_prefix = settings.get("player_name_prefix", "专家")
+        enable_bg = settings.get("enable_player_backstory", True)
+        max_pl = settings.get("max_player_personality_length", 200)
+        player_inst = settings.get("player_instruction", "")
+        resp_style = settings.get("player_response_style", "balanced")
+        model_ovr = settings.get("player_model_override", "")
 
-        print(f"{N2}  {C_DIM('思考模式:')}      {C_BOLD(thinking)}")
+        print(f"{N2}  {C_DIM('思考模式:')}            {C_BOLD(thinking)}")
         r_icon = C_GREEN("开") if show_reasoning else C_RED("关")
-        print(f"{N2}  {C_DIM('显示推理过程:')}   {r_icon}")
+        print(f"{N2}  {C_DIM('显示推理过程:')}         {r_icon}")
         a_icon = C_GREEN("开") if show_answer else C_RED("关")
-        print(f"{N2}  {C_DIM('显示最终答案:')}   {a_icon}")
-        print(f"{N2}  {C_DIM('默认专家人数:')}   {C_BOLD(str(default_num))}")
+        print(f"{N2}  {C_DIM('显示最终答案:')}         {a_icon}")
+        print(f"{N2}  {C_DIM('默认专家人数:')}         {C_BOLD(str(default_num))}")
+        print(f"{N2}  {C_DIM('专家名前缀:')}           {C_BOLD(name_prefix)}")
+        bg_icon = C_GREEN("开") if enable_bg else C_RED("关")
+        print(f"{N2}  {C_DIM('启用角色背景故事:')}     {bg_icon}")
+        print(f"{N2}  {C_DIM('角色描述最大长度:')}     {C_BOLD(str(max_pl))} {C_DIM('字')}")
+        inst_short = (player_inst[:40] + "…") if len(player_inst) > 40 else (player_inst or C_DIM("(空)"))
+        print(f"{N2}  {C_DIM('玩家指令前缀:')}         {C_BOLD(inst_short)}")
+        rs_icons = {"concise": C_RED("精简"), "balanced": C_GREEN("均衡"), "detailed": C_YELLOW("详细")}
+        print(f"{N2}  {C_DIM('回复风格:')}             {rs_icons.get(resp_style, C_BOLD(resp_style))}")
+        ovr_show = C_BOLD(model_ovr) if model_ovr else C_DIM("(使用主模型)")
+        ovr_label = model_ovr if model_ovr else "主模型"
+        print(f"{N2}  {C_DIM('按玩家模型:')}           {ovr_show}")
         _sep(w)
         print(f"{N2}  {C_CYAN(' [1] ')}  切换思考模式     {C_DIM(f'当前: {thinking}')}")
         print(f"{N2}  {C_GREEN(' [2] ')}  切换显示推理     {C_DIM(f'当前: {r_icon}')}")
         print(f"{N2}  {C_YELLOW(' [3] ')}  切换显示答案     {C_DIM(f'当前: {a_icon}')}")
-        print(f"{N2}  {C_BLUE(' [4] ')}  设置默认人数")
+        print(f"{N2}  {C_BLUE(' [4] ')}  设置默认人数     {C_DIM(f'当前: {default_num}')}")
+        print(f"{N2}  {C_MAGENTA(' [5] ')}  专家名前缀       {C_DIM(f'当前: {name_prefix}')}")
+        print(f"{N2}  {C_WHITE(' [6] ')}  角色背景故事     {C_DIM(f'当前: {bg_icon}')}")
+        print(f"{N2}  {C_RED(' [7] ')}  角色描述最大长度 {C_DIM(f'当前: {max_pl} 字')}")
+        print(f"{N2}  {C_CYAN(' [8] ')}  玩家指令前缀     {C_DIM(f'当前: {inst_short}')}")
+        print(f"{N2}  {C_GREEN(' [9] ')}  回复风格         {C_DIM(f'当前: {resp_style}')}")
+        print(f"{N2}  {C_YELLOW(' [10] ')} 按玩家模型       {C_DIM(f'当前: {ovr_label}')}")
         print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
         _close_box(w)
         print()
         print(f"  {C_YELLOW('▸')}  ", end="")
-        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-4/q]')}: ").strip().lower()
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-10/q]')}: ").strip().lower()
 
         if choice == "1":
             modes = ["disabled", "auto", "enabled"]
@@ -6446,12 +6594,44 @@ def _player_defaults_menu():
         elif choice == "4":
             print(f"\n{N2}  ", end="")
             try:
-                n = input(f"{C_CYAN('默认人数')} {C_DIM('[5]')}: ").strip()
+                n = input(f"{C_CYAN('默认人数')} {C_DIM('[1-50]')}: ").strip()
                 if n:
                     settings["default_num_players"] = max(1, min(50, int(n)))
                     _save_settings(settings)
             except ValueError:
                 pass
+        elif choice == "5":
+            print(f"\n{N2}  ", end="")
+            new_prefix = input(f"{C_CYAN('专家名前缀')} {C_DIM('[默认: 专家]')}: ").strip()
+            if new_prefix:
+                settings["player_name_prefix"] = new_prefix
+                _save_settings(settings)
+        elif choice == "6":
+            settings["enable_player_backstory"] = not settings.get("enable_player_backstory", True)
+            _save_settings(settings)
+        elif choice == "7":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('角色描述最大长度')} {C_DIM('[50-500]')}: ").strip())
+                settings["max_player_personality_length"] = max(50, min(500, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "8":
+            print(f"\n{N2}  ", end="")
+            new_inst = input(f"{C_CYAN('玩家指令前缀')} {C_DIM('(空=清除)')}: ").strip()
+            settings["player_instruction"] = new_inst
+            _save_settings(settings)
+        elif choice == "9":
+            modes = ["concise", "balanced", "detailed"]
+            current = modes.index(resp_style) if resp_style in modes else 1
+            settings["player_response_style"] = modes[(current + 1) % len(modes)]
+            _save_settings(settings)
+        elif choice == "10":
+            print(f"\n{N2}  ", end="")
+            new_model = input(f"{C_CYAN('按玩家模型(空=使用主模型)')} {C_DIM('如: deepseek-v4-flash')}: ").strip()
+            settings["player_model_override"] = new_model
+            _save_settings(settings)
         elif choice == "q":
             return
 
@@ -6471,21 +6651,29 @@ def _scheduler_params_menu():
         dw = settings.get("diversity_weight", 0.6)
         hw = settings.get("hunger_weight", 0.3)
         rt = settings.get("redundancy_threshold", 0.7)
+        sseed = settings.get("scheduler_seed", 0)
+        bm = settings.get("scheduler_balance_mode", "weighted")
 
         print(f"{N2}  {C_DIM('探索因子:')}       {C_BOLD(f'{ef:.1f}')}  {C_DIM('(越高越倾向探索性发言)')}")
         print(f"{N2}  {C_DIM('多样性权重:')}     {C_BOLD(f'{dw:.1f}')}  {C_DIM('(越高越倾向不同视角)')}")
         print(f"{N2}  {C_DIM('饥饿度权重:')}     {C_BOLD(f'{hw:.1f}')}  {C_DIM('(越高越倾向久未发言者)')}")
         print(f"{N2}  {C_DIM('冗余阈值:')}       {C_BOLD(f'{rt:.1f}')}  {C_DIM('(相似度超过此值视为冗余)')}")
+        seed_show = C_BOLD(str(sseed)) if sseed != 0 else C_DIM("随机")
+        print(f"{N2}  {C_DIM('随机种子:')}        {seed_show}  {C_DIM('(0=完全随机)')}")
+        bm_icons = {"round-robin": C_CYAN("轮询"), "weighted": C_GREEN("加权"), "random": C_RED("随机")}
+        print(f"{N2}  {C_DIM('平衡模式:')}        {bm_icons.get(bm, C_BOLD(bm))}")
         _sep(w)
         print(f"{N2}  {C_CYAN(' [1] ')}  探索因子     {C_DIM(f'当前: {ef:.1f}')}")
         print(f"{N2}  {C_GREEN(' [2] ')}  多样性权重   {C_DIM(f'当前: {dw:.1f}')}")
         print(f"{N2}  {C_YELLOW(' [3] ')}  饥饿度权重   {C_DIM(f'当前: {hw:.1f}')}")
         print(f"{N2}  {C_MAGENTA(' [4] ')}  冗余阈值     {C_DIM(f'当前: {rt:.1f}')}")
+        print(f"{N2}  {C_BLUE(' [5] ')}  随机种子      {C_DIM(f'当前: {seed_show}')}")
+        print(f"{N2}  {C_WHITE(' [6] ')}  平衡模式      {C_DIM(f'当前: {bm}')}")
         print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
         _close_box(w)
         print()
         print(f"  {C_YELLOW('▸')}  ", end="")
-        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-4/q]')}: ").strip().lower()
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-6/q]')}: ").strip().lower()
 
         if choice in ("1", "2", "3", "4"):
             keys = ["exploration_factor", "diversity_weight", "hunger_weight", "redundancy_threshold"]
@@ -6499,6 +6687,19 @@ def _scheduler_params_menu():
                 _save_settings(settings)
             except ValueError:
                 pass
+        elif choice == "5":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('调度器随机种子')} {C_DIM('[0=随机, 1-999999]')}: ").strip())
+                settings["scheduler_seed"] = max(0, min(999999, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "6":
+            modes = ["round-robin", "weighted", "random"]
+            current = modes.index(bm) if bm in modes else 1
+            settings["scheduler_balance_mode"] = modes[(current + 1) % len(modes)]
+            _save_settings(settings)
         elif choice == "q":
             return
 
@@ -6515,28 +6716,64 @@ def _discussion_params_menu():
         w = _box(C_GREEN(" 讨论参数 "))
 
         mr = settings.get("max_rounds", 0)
+        minr = settings.get("min_rounds", 3)
         ct = settings.get("consensus_threshold", 0.85)
         st = settings.get("stall_threshold", 5)
+        asp = settings.get("auto_stop_patience", 3)
         me = settings.get("max_essences", 500)
-        dm = settings.get("default_num_players", 5)
+        ems = settings.get("essence_min_score", 0.3)
+        mdi = settings.get("meta_discussion_interval", 5)
+        spr = settings.get("speakers_per_round", 3)
+        dm = settings.get("discussion_mode", "physical")
+        gm = settings.get("goal_mode", "balance")
+        ecm = settings.get("enable_controversy_map", True)
+        eaa = settings.get("enable_atmosphere_analysis", True)
+        esn = settings.get("enable_snapshot", True)
+        ait = settings.get("auto_intervene", True)
 
         mr_label = C_BOLD("无限制") if mr == 0 else C_BOLD(str(mr))
-        print(f"{N2}  {C_DIM('最大轮数:')}        {mr_label}  {C_DIM('(0=无限制)')}")
-        print(f"{N2}  {C_DIM('共识阈值:')}        {C_BOLD(f'{ct:.0%}')}  {C_DIM('(高于此值建议结束)')}")
-        print(f"{N2}  {C_DIM('僵持阈值:')}        {C_BOLD(str(st))}  {C_DIM('轮 (超过此值建议停止)')}")
-        print(f"{N2}  {C_DIM('精华池上限:')}      {C_BOLD(str(me))}  {C_DIM('条 (超过此值建议结束)')}")
-        print(f"{N2}  {C_DIM('默认专家人数:')}    {C_BOLD(str(dm))}")
+        print(f"{N2}  {C_DIM('最大轮数:')}          {mr_label}  {C_DIM('(0=无限制)')}")
+        print(f"{N2}  {C_DIM('最少轮数:')}          {C_BOLD(str(minr))}  {C_DIM('(至少讨论N轮)')}")
+        print(f"{N2}  {C_DIM('共识阈值:')}          {C_BOLD(f'{ct:.0%}')}  {C_DIM('(高于此值建议结束)')}")
+        print(f"{N2}  {C_DIM('僵持阈值:')}          {C_BOLD(str(st))}  {C_DIM('轮 (超过此值建议停止)')}")
+        print(f"{N2}  {C_DIM('自动停止耐心:')}      {C_BOLD(str(asp))}  {C_DIM('轮 (多次建议后强制停止)')}")
+        print(f"{N2}  {C_DIM('精华池上限:')}        {C_BOLD(str(me))}  {C_DIM('条 (超过此值建议结束)')}")
+        print(f"{N2}  {C_DIM('精华最低分:')}        {C_BOLD(f'{ems:.1f}')}  {C_DIM('(低于此分不收录)')}")
+        print(f"{N2}  {C_DIM('元讨论间隔:')}        {C_BOLD(str(mdi))}  {C_DIM('轮 (每N轮插入元讨论)')}")
+        print(f"{N2}  {C_DIM('每轮发言数:')}        {C_BOLD(str(spr))}  {C_DIM('人 (每轮发言专家数)')}")
+        dm_icons = {"physical": C_GREEN("实体"), "virtual": C_CYAN("虚拟")}
+        print(f"{N2}  {C_DIM('讨论模式:')}          {dm_icons.get(dm, C_BOLD(dm))}")
+        gm_icons = {"balance": C_GREEN("均衡"), "consensus": C_YELLOW("共识"), "innovation": C_MAGENTA("创新")}
+        print(f"{N2}  {C_DIM('目标模式:')}          {gm_icons.get(gm, C_BOLD(gm))}")
+        print(f"{N2}  {C_DIM('争议地图:')}          {'✅ 显示' if ecm else '❌ 隐藏'}")
+        print(f"{N2}  {C_DIM('氛围分析:')}          {'✅ 显示' if eaa else '❌ 隐藏'}")
+        print(f"{N2}  {C_DIM('讨论快照:')}          {'✅ 启用' if esn else '❌ 禁用'}")
+        print(f"{N2}  {C_DIM('AI干预停滞:')}        {'✅ 启用' if ait else '❌ 禁用'}")
         _sep(w)
-        print(f"{N2}  {C_CYAN(' [1] ')}  最大轮数     {C_DIM(f'当前: {mr_label}')}")
-        print(f"{N2}  {C_GREEN(' [2] ')}  共识阈值     {C_DIM(f'当前: {ct:.0%}')}")
-        print(f"{N2}  {C_YELLOW(' [3] ')}  僵持阈值     {C_DIM(f'当前: {st} 轮')}")
-        print(f"{N2}  {C_MAGENTA(' [4] ')}  精华池上限   {C_DIM(f'当前: {me} 条')}")
-        print(f"{N2}  {C_BLUE(' [5] ')}  默认专家人数 {C_DIM(f'当前: {dm} 人')}")
+        print(f"{N2}  {C_CYAN(' [1] ')}  最大轮数         {C_DIM(f'当前: {mr_label}')}")
+        print(f"{N2}  {C_GREEN(' [2] ')}  最少轮数         {C_DIM(f'当前: {minr} 轮')}")
+        print(f"{N2}  {C_YELLOW(' [3] ')}  共识阈值         {C_DIM(f'当前: {ct:.0%}')}")
+        print(f"{N2}  {C_MAGENTA(' [4] ')}  僵持阈值         {C_DIM(f'当前: {st} 轮')}")
+        print(f"{N2}  {C_BLUE(' [5] ')}  自动停止耐心     {C_DIM(f'当前: {asp} 轮')}")
+        print(f"{N2}  {C_WHITE(' [6] ')}  精华池上限       {C_DIM(f'当前: {me} 条')}")
+        print(f"{N2}  {C_RED(' [7] ')}  精华最低分       {C_DIM(f'当前: {ems:.1f}')}")
+        print(f"{N2}  {C_CYAN(' [8] ')}  元讨论间隔       {C_DIM(f'当前: {mdi} 轮')}")
+        print(f"{N2}  {C_GREEN(' [9] ')}  每轮发言数       {C_DIM(f'当前: {spr} 人')}")
+        print(f"{N2}  {C_YELLOW(' [10] ')} 讨论模式         {C_DIM(f'当前: {dm}')}")
+        print(f"{N2}  {C_MAGENTA(' [11] ')} 目标模式         {C_DIM(f'当前: {gm}')}")
+        ecm_label = "显示" if ecm else "隐藏"
+        eaa_label = "显示" if eaa else "隐藏"
+        esn_label = "启用" if esn else "禁用"
+        ait_label = "启用" if ait else "禁用"
+        print(f"{N2}  {C_BLUE(' [12] ')} 争议地图         {C_DIM(f'当前: {ecm_label}')}")
+        print(f"{N2}  {C_WHITE(' [13] ')} 氛围分析         {C_DIM(f'当前: {eaa_label}')}")
+        print(f"{N2}  {C_RED(' [14] ')} 讨论快照         {C_DIM(f'当前: {esn_label}')}")
+        print(f"{N2}  {C_CYAN(' [15] ')} AI干预停滞       {C_DIM(f'当前: {ait_label}')}")
         print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
         _close_box(w)
         print()
         print(f"  {C_YELLOW('▸')}  ", end="")
-        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-5/q]')}: ").strip().lower()
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-15/q]')}: ").strip().lower()
 
         if choice == "1":
             print(f"\n{N2}  ", end="")
@@ -6549,12 +6786,20 @@ def _discussion_params_menu():
         elif choice == "2":
             print(f"\n{N2}  ", end="")
             try:
+                n = int(input(f"{C_CYAN('最少轮数')} {C_DIM('[1-50]')}: ").strip())
+                settings["min_rounds"] = max(1, min(50, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "3":
+            print(f"\n{N2}  ", end="")
+            try:
                 v = float(input(f"{C_CYAN('共识阈值')} {C_DIM('[0.5-1.0]')}: ").strip())
                 settings["consensus_threshold"] = max(0.5, min(1.0, v))
                 _save_settings(settings)
             except ValueError:
                 pass
-        elif choice == "3":
+        elif choice == "4":
             print(f"\n{N2}  ", end="")
             try:
                 n = int(input(f"{C_CYAN('僵持阈值')} {C_DIM('[3-20]')}: ").strip())
@@ -6562,7 +6807,15 @@ def _discussion_params_menu():
                 _save_settings(settings)
             except ValueError:
                 pass
-        elif choice == "4":
+        elif choice == "5":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('自动停止耐心')} {C_DIM('[1-10]')}: ").strip())
+                settings["auto_stop_patience"] = max(1, min(10, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "6":
             print(f"\n{N2}  ", end="")
             try:
                 n = int(input(f"{C_CYAN('精华池上限')} {C_DIM('[100-2000]')}: ").strip())
@@ -6570,14 +6823,52 @@ def _discussion_params_menu():
                 _save_settings(settings)
             except ValueError:
                 pass
-        elif choice == "5":
+        elif choice == "7":
             print(f"\n{N2}  ", end="")
             try:
-                n = int(input(f"{C_CYAN('默认专家人数')} {C_DIM('[1-50]')}: ").strip())
-                settings["default_num_players"] = max(1, min(50, n))
+                v = float(input(f"{C_CYAN('精华最低分')} {C_DIM('[0.0-1.0]')}: ").strip())
+                settings["essence_min_score"] = max(0.0, min(1.0, v))
                 _save_settings(settings)
             except ValueError:
                 pass
+        elif choice == "8":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('元讨论间隔(轮)')} {C_DIM('[1-20]')}: ").strip())
+                settings["meta_discussion_interval"] = max(1, min(20, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "9":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('每轮发言数(人)')} {C_DIM('[1-10]')}: ").strip())
+                settings["speakers_per_round"] = max(1, min(10, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "10":
+            modes = ["physical", "virtual"]
+            current = modes.index(dm) if dm in modes else 0
+            settings["discussion_mode"] = modes[(current + 1) % len(modes)]
+            _save_settings(settings)
+        elif choice == "11":
+            modes = ["balance", "consensus", "innovation"]
+            current = modes.index(gm) if gm in modes else 0
+            settings["goal_mode"] = modes[(current + 1) % len(modes)]
+            _save_settings(settings)
+        elif choice == "12":
+            settings["enable_controversy_map"] = not settings.get("enable_controversy_map", True)
+            _save_settings(settings)
+        elif choice == "13":
+            settings["enable_atmosphere_analysis"] = not settings.get("enable_atmosphere_analysis", True)
+            _save_settings(settings)
+        elif choice == "14":
+            settings["enable_snapshot"] = not settings.get("enable_snapshot", True)
+            _save_settings(settings)
+        elif choice == "15":
+            settings["auto_intervene"] = not settings.get("auto_intervene", True)
+            _save_settings(settings)
         elif choice == "q":
             return
 
@@ -6587,6 +6878,7 @@ def _discussion_params_menu():
 def _tts_settings_menu():
     """语音输出（TTS）配置菜单"""
     from .multimodal import get_tts, TTSDialog
+    settings = _load_settings()
     while True:
         os.system("cls" if os.name == "nt" else "clear")
         _banner()
@@ -6594,6 +6886,9 @@ def _tts_settings_menu():
         w = _box(C_WHITE(" 语音输出设置 "))
 
         tts = get_tts()
+        tts_voice = settings.get("tts_voice", "male")
+        tts_speed = settings.get("tts_speed", 1.0)
+        tts_volume = settings.get("tts_volume", 1.0)
 
         print(f"{N2}  {C_DIM('当前引擎:')}  {C_BOLD(tts.provider_name)}")
         print(f"{N2}  {C_DIM('状态:')}     {'✅ 已启用' if tts.enabled else '❌ 已禁用'}")
@@ -6604,15 +6899,22 @@ def _tts_settings_menu():
             print(f"{N2}  {C_DIM('语速:')}     {C_BOLD(tts._rate)}")
             print(f"{N2}  {C_DIM('音量:')}     {C_BOLD(int(tts._volume * 100))}%")
         _sep(w)
+        print(f"{N2}  {C_DIM('默认语音:')}  {C_BOLD(tts_voice)}  {C_DIM('(默认 TTS 语音)')}")
+        print(f"{N2}  {C_DIM('默认语速:')}  {C_BOLD(f'{tts_speed:.1f}')}  {C_DIM('(0.5~2.0)')}")
+        print(f"{N2}  {C_DIM('默认音量:')}  {C_BOLD(f'{tts_volume:.1f}')}  {C_DIM('(0.0~1.0)')}")
+        _sep(w)
         tts_status = "启用" if tts.enabled else "禁用"
         print(f"{N2}  {C_CYAN(' [1] ')}  切换开关       {C_DIM(f'当前: {tts_status}')}")
         print(f"{N2}  {C_GREEN(' [2] ')}  测试语音       {C_DIM('朗读测试文本')}")
         print(f"{N2}  {C_BLUE(' [3] ')}  切换 edge-tts  {C_DIM('微软免费 TTS（推荐）')}")
+        print(f"{N2}  {C_YELLOW(' [4] ')}  默认语音       {C_DIM(f'当前: {tts_voice}')}")
+        print(f"{N2}  {C_MAGENTA(' [5] ')}  默认语速       {C_DIM(f'当前: {tts_speed:.1f}')}")
+        print(f"{N2}  {C_RED(' [6] ')}  默认音量       {C_DIM(f'当前: {tts_volume:.1f}')}")
         print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
         _close_box(w)
         print()
         print(f"  {C_YELLOW('▸')}  ", end="")
-        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-3/q]')}: ").strip().lower()
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-6/q]')}: ").strip().lower()
 
         if choice == "1":
             tts.enabled = not tts.enabled
@@ -6627,8 +6929,512 @@ def _tts_settings_menu():
             tts.switch_to_edge_tts()
             print(f"\n{N2}  {C_GREEN('✓')} 已切换到 edge-tts: {tts.provider_name} | 语音: {tts._edge_voice}")
             _pause()
+        elif choice == "4":
+            modes = ["male", "female"]
+            current = modes.index(tts_voice) if tts_voice in modes else 0
+            settings["tts_voice"] = modes[(current + 1) % len(modes)]
+            _save_settings(settings)
+        elif choice == "5":
+            print(f"\n{N2}  ", end="")
+            try:
+                v = float(input(f"{C_CYAN('默认语速')} {C_DIM('[0.5-2.0]')}: ").strip())
+                settings["tts_speed"] = max(0.5, min(2.0, v))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "6":
+            print(f"\n{N2}  ", end="")
+            try:
+                v = float(input(f"{C_CYAN('默认音量')} {C_DIM('[0.0-1.0]')}: ").strip())
+                settings["tts_volume"] = max(0.0, min(1.0, v))
+                _save_settings(settings)
+            except ValueError:
+                pass
         elif choice == "q":
             return
+
+
+def _llm_params_menu():
+    """LLM 行为参数配置菜单"""
+    settings = _load_settings()
+    while True:
+        os.system("cls" if os.name == "nt" else "clear")
+        _banner()
+        print()
+        w = _box(C_MAGENTA(" LLM 行为参数 "))
+
+        temp = settings.get("llm_temperature", 0.7)
+        top_p = settings.get("llm_top_p", 0.9)
+        fp = settings.get("llm_frequency_penalty", 0.0)
+        pp = settings.get("llm_presence_penalty", 0.0)
+        mt = settings.get("llm_max_tokens", 4096)
+        delay = settings.get("llm_rate_limit_delay", 0.0)
+        retry = settings.get("llm_max_retries", 3)
+        seed = settings.get("llm_seed", 42)
+        stop = settings.get("llm_stop", "")
+        rl = settings.get("llm_response_language", "zh")
+        apt = settings.get("api_timeout", 60)
+        astr = settings.get("api_stream", True)
+        aorg = settings.get("api_organization", "")
+
+        print(f"{N2}  {C_DIM('Temperature:')}    {C_BOLD(f'{temp:.2f}')}  {C_DIM('(越高越随机)')}")
+        print(f"{N2}  {C_DIM('Top-P:')}          {C_BOLD(f'{top_p:.2f}')}  {C_DIM('(核采样阈值)')}")
+        print(f"{N2}  {C_DIM('频率惩罚:')}        {C_BOLD(f'{fp:.2f}')}  {C_DIM('(抑制重复词)')}")
+        print(f"{N2}  {C_DIM('存在惩罚:')}        {C_BOLD(f'{pp:.2f}')}  {C_DIM('(鼓励新话题)')}")
+        print(f"{N2}  {C_DIM('最大 Token:')}      {C_BOLD(mt)}")
+        print(f"{N2}  {C_DIM('限流延迟:')}        {C_BOLD(f'{delay:.1f}')}s  {C_DIM('(API 调用间隔)')}")
+        print(f"{N2}  {C_DIM('最大重试:')}        {C_BOLD(retry)}  {C_DIM('次')}")
+        print(f"{N2}  {C_DIM('随机种子:')}        {C_BOLD(str(seed))}  {C_DIM('(0=随机)')}")
+        s_short = (stop[:30] + "…") if len(stop) > 30 else (stop or C_DIM("(空)"))
+        print(f"{N2}  {C_DIM('停止序列:')}        {C_BOLD(s_short)}")
+        rl_icons = {"zh": C_GREEN("中文"), "en": C_BLUE("English")}
+        print(f"{N2}  {C_DIM('响应语言:')}        {rl_icons.get(rl, C_BOLD(rl))}")
+        print(f"{N2}  {C_DIM('API 超时:')}        {C_BOLD(str(apt))}s")
+        print(f"{N2}  {C_DIM('流式输出:')}        {'✅ 开启' if astr else '❌ 关闭'}")
+        aorg_short = aorg[:30] + "…" if len(aorg) > 30 else (aorg or C_DIM("(空)"))
+        print(f"{N2}  {C_DIM('Organization:')}   {C_BOLD(aorg_short)}")
+        _sep(w)
+        print(f"{N2}  {C_CYAN(' [1] ')}  Temperature     {C_DIM(f'当前: {temp:.2f}')}")
+        print(f"{N2}  {C_GREEN(' [2] ')}  Top-P           {C_DIM(f'当前: {top_p:.2f}')}")
+        print(f"{N2}  {C_YELLOW(' [3] ')}  频率惩罚         {C_DIM(f'当前: {fp:.2f}')}")
+        print(f"{N2}  {C_MAGENTA(' [4] ')}  存在惩罚         {C_DIM(f'当前: {pp:.2f}')}")
+        print(f"{N2}  {C_BLUE(' [5] ')}  最大 Token       {C_DIM(f'当前: {mt}')}")
+        print(f"{N2}  {C_WHITE(' [6] ')}  限流延迟         {C_DIM(f'当前: {delay:.1f}s')}")
+        print(f"{N2}  {C_RED(' [7] ')}  最大重试         {C_DIM(f'当前: {retry} 次')}")
+        print(f"{N2}  {C_CYAN(' [8] ')}  随机种子         {C_DIM(f'当前: {seed}')}")
+        print(f"{N2}  {C_GREEN(' [9] ')}  停止序列         {C_DIM(f'当前: {s_short}')}")
+        print(f"{N2}  {C_YELLOW(' [10] ')} 响应语言         {C_DIM(f'当前: {rl}')}")
+        print(f"{N2}  {C_MAGENTA(' [11] ')} API 超时         {C_DIM(f'当前: {apt}s')}")
+        astr_label = "开启" if astr else "关闭"
+        print(f"{N2}  {C_BLUE(' [12] ')} 流式输出         {C_DIM(f'当前: {astr_label}')}")
+        print(f"{N2}  {C_WHITE(' [13] ')} Organization     {C_DIM(f'当前: {aorg_short}')}")
+        print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
+        _close_box(w)
+        print()
+        print(f"  {C_YELLOW('▸')}  ", end="")
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-13/q]')}: ").strip().lower()
+
+        if choice in ("1", "2", "3", "4"):
+            keys = ["llm_temperature", "llm_top_p", "llm_frequency_penalty", "llm_presence_penalty"]
+            labels = ["Temperature [0.0-2.0]", "Top-P [0.1-1.0]", "频率惩罚 [-2.0-2.0]", "存在惩罚 [-2.0-2.0]"]
+            hints = ["[0.0-2.0]", "[0.1-1.0]", "[-2.0-2.0]", "[-2.0-2.0]"]
+            idx = int(choice) - 1
+            print(f"\n{N2}  ", end="")
+            try:
+                val = float(input(f"{C_CYAN(labels[idx])} {C_DIM(hints[idx])}: ").strip())
+                ranges = [(0.0, 2.0), (0.1, 1.0), (-2.0, 2.0), (-2.0, 2.0)]
+                val = max(ranges[idx][0], min(ranges[idx][1], val))
+                settings[keys[idx]] = val
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "5":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('最大 Token')} {C_DIM('[512-32768]')}: ").strip())
+                settings["llm_max_tokens"] = max(512, min(32768, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "6":
+            print(f"\n{N2}  ", end="")
+            try:
+                v = float(input(f"{C_CYAN('限流延迟(秒)')} {C_DIM('[0.0-10.0]')}: ").strip())
+                settings["llm_rate_limit_delay"] = max(0.0, min(10.0, v))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "7":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('最大重试次数')} {C_DIM('[1-10]')}: ").strip())
+                settings["llm_max_retries"] = max(1, min(10, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "8":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('随机种子')} {C_DIM('[0=随机, 1-999999]')}: ").strip())
+                settings["llm_seed"] = max(0, min(999999, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "9":
+            print(f"\n{N2}  ", end="")
+            new_stop = input(f"{C_CYAN('停止序列(逗号分隔)')} {C_DIM('(空=清除)')}: ").strip()
+            settings["llm_stop"] = new_stop
+            _save_settings(settings)
+        elif choice == "10":
+            modes = ["zh", "en"]
+            current = modes.index(rl) if rl in modes else 0
+            settings["llm_response_language"] = modes[(current + 1) % len(modes)]
+            _save_settings(settings)
+        elif choice == "11":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('API 超时(秒)')} {C_DIM('[10-300]')}: ").strip())
+                settings["api_timeout"] = max(10, min(300, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "12":
+            settings["api_stream"] = not settings.get("api_stream", True)
+            _save_settings(settings)
+        elif choice == "13":
+            print(f"\n{N2}  ", end="")
+            new_org = input(f"{C_CYAN('Organization ID')} {C_DIM('(空=清除)')}: ").strip()
+            settings["api_organization"] = new_org
+            _save_settings(settings)
+        elif choice == "q":
+            return
+
+        settings = _load_settings()
+
+
+def _emergence_params_menu():
+    """涌现引擎参数配置菜单"""
+    settings = _load_settings()
+    while True:
+        os.system("cls" if os.name == "nt" else "clear")
+        _banner()
+        print()
+        w = _box(C_CYAN(" 涌现引擎参数 "))
+
+        interval = settings.get("emergence_interval", 3)
+        max_lv = settings.get("max_consciousness_level", 4)
+        cw = settings.get("emergence_coherence_weight", 0.6)
+        nw = settings.get("emergence_novelty_weight", 0.7)
+        dw = settings.get("emergence_depth_weight", 0.8)
+        et = settings.get("emergence_temperature", 0.8)
+        db = settings.get("emergence_diversity_boost", 0.5)
+        ept = settings.get("emergence_enable_phase_transition", True)
+        eve = settings.get("emergence_enable_virtual_expert", True)
+        tk = settings.get("emergence_top_k_concepts", 5)
+        mi = settings.get("emergence_max_iterations", 3)
+
+        print(f"{N2}  {C_DIM('运行间隔:')}          {C_BOLD(str(interval))}  {C_DIM('轮 (每N轮运行一次)')}")
+        print(f"{N2}  {C_DIM('最大意识层级:')}      {C_BOLD(str(max_lv))}  {C_DIM('(0=L0~4=L4)')}")
+        print(f"{N2}  {C_DIM('连贯性权重:')}        {C_BOLD(f'{cw:.1f}')}  {C_DIM('(越高越倾向连贯)')}")
+        print(f"{N2}  {C_DIM('新颖性权重:')}        {C_BOLD(f'{nw:.1f}')}  {C_DIM('(越高越倾向新颖)')}")
+        print(f"{N2}  {C_DIM('深度权重:')}          {C_BOLD(f'{dw:.1f}')}  {C_DIM('(越高越倾向深度)')}")
+        print(f"{N2}  {C_DIM('合成温度:')}          {C_BOLD(f'{et:.1f}')}  {C_DIM('(越高越随机)')}")
+        print(f"{N2}  {C_DIM('多样性增强:')}        {C_BOLD(f'{db:.1f}')}  {C_DIM('(越高越多样)')}")
+        print(f"{N2}  {C_DIM('阶段跃迁:')}          {'✅ 启用' if ept else '❌ 禁用'}  {C_DIM('(意识层级跃迁)')}")
+        print(f"{N2}  {C_DIM('虚拟专家:')}          {'✅ 启用' if eve else '❌ 禁用'}  {C_DIM('(生成虚拟专家观点)')}")
+        print(f"{N2}  {C_DIM('Top-K 概念:')}        {C_BOLD(str(tk))}  {C_DIM('(每轮概念数)')}")
+        print(f"{N2}  {C_DIM('最大迭代:')}          {C_BOLD(str(mi))}  {C_DIM('次 (合成迭代次数)')}")
+        _sep(w)
+        print(f"{N2}  {C_CYAN(' [1] ')}  运行间隔     {C_DIM(f'当前: {interval} 轮')}")
+        print(f"{N2}  {C_GREEN(' [2] ')}  最大意识层级 {C_DIM(f'当前: L{max_lv}')}")
+        print(f"{N2}  {C_YELLOW(' [3] ')}  连贯性权重   {C_DIM(f'当前: {cw:.1f}')}")
+        print(f"{N2}  {C_MAGENTA(' [4] ')}  新颖性权重   {C_DIM(f'当前: {nw:.1f}')}")
+        print(f"{N2}  {C_BLUE(' [5] ')}  深度权重     {C_DIM(f'当前: {dw:.1f}')}")
+        print(f"{N2}  {C_WHITE(' [6] ')}  合成温度     {C_DIM(f'当前: {et:.1f}')}")
+        print(f"{N2}  {C_RED(' [7] ')}  多样性增强   {C_DIM(f'当前: {db:.1f}')}")
+        ept_label = "启用" if ept else "禁用"
+        print(f"{N2}  {C_CYAN(' [8] ')}  阶段跃迁     {C_DIM(f'当前: {ept_label}')}")
+        eve_label = "启用" if eve else "禁用"
+        print(f"{N2}  {C_GREEN(' [9] ')}  虚拟专家     {C_DIM(f'当前: {eve_label}')}")
+        print(f"{N2}  {C_YELLOW(' [10] ')} Top-K 概念   {C_DIM(f'当前: {tk}')}")
+        print(f"{N2}  {C_MAGENTA(' [11] ')} 最大迭代     {C_DIM(f'当前: {mi} 次')}")
+        print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
+        _close_box(w)
+        print()
+        print(f"  {C_YELLOW('▸')}  ", end="")
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-11/q]')}: ").strip().lower()
+
+        if choice == "1":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('运行间隔(轮)')} {C_DIM('[1-20]')}: ").strip())
+                settings["emergence_interval"] = max(1, min(20, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "2":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('最大意识层级')} {C_DIM('[0-4]')}: ").strip())
+                settings["max_consciousness_level"] = max(0, min(4, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice in ("3", "4", "5", "6", "7"):
+            keys = ["emergence_coherence_weight", "emergence_novelty_weight",
+                     "emergence_depth_weight", "emergence_temperature", "emergence_diversity_boost"]
+            labels = ["连贯性权重", "新颖性权重", "深度权重", "合成温度", "多样性增强"]
+            idx = int(choice) - 3
+            print(f"\n{N2}  ", end="")
+            try:
+                val = float(input(f"{C_CYAN(labels[idx])} {C_DIM('[0.1-5.0]')}: ").strip())
+                settings[keys[idx]] = max(0.1, min(5.0, val))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "8":
+            settings["emergence_enable_phase_transition"] = not settings.get("emergence_enable_phase_transition", True)
+            _save_settings(settings)
+        elif choice == "9":
+            settings["emergence_enable_virtual_expert"] = not settings.get("emergence_enable_virtual_expert", True)
+            _save_settings(settings)
+        elif choice == "10":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('Top-K 概念数')} {C_DIM('[1-20]')}: ").strip())
+                settings["emergence_top_k_concepts"] = max(1, min(20, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "11":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('最大合成迭代次数')} {C_DIM('[1-10]')}: ").strip())
+                settings["emergence_max_iterations"] = max(1, min(10, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "q":
+            return
+
+        settings = _load_settings()
+
+
+def _display_params_menu():
+    """输出与显示参数配置菜单"""
+    settings = _load_settings()
+    while True:
+        os.system("cls" if os.name == "nt" else "clear")
+        _banner()
+        print()
+        w = _box(C_WHITE(" 输出与显示 "))
+
+        verbosity = settings.get("output_verbosity", "normal")
+        show_es = settings.get("show_essence_scores", True)
+        show_ns = settings.get("show_network_stats", True)
+        anim = settings.get("animation_speed", "normal")
+        show_pb = settings.get("show_progress_bar", True)
+        show_ts = settings.get("show_timestamp", False)
+        tw = settings.get("terminal_width_override", 0)
+        spe = settings.get("show_player_emotion", True)
+        scr = settings.get("show_contribution_ranking", True)
+        sds = settings.get("show_discussion_stats", True)
+        cm = settings.get("compact_mode", False)
+        ct = settings.get("color_theme", "default")
+
+        v_icons = {"minimal": C_RED("精简"), "normal": C_GREEN("正常"), "verbose": C_YELLOW("详细")}
+        a_icons = {"slow": C_BLUE("慢"), "normal": C_GREEN("正常"), "fast": C_RED("快")}
+        v_icon = v_icons.get(verbosity, C_BOLD(verbosity))
+        a_icon = a_icons.get(anim, C_BOLD(anim))
+        ct_icons = {"default": C_GREEN("默认"), "dark": C_BLUE("暗色"), "light": C_YELLOW("亮色")}
+
+        print(f"{N2}  {C_DIM('输出详细度:')}    {v_icon}")
+        print(f"{N2}  {C_DIM('精华评分:')}      {'✅ 显示' if show_es else '❌ 隐藏'}")
+        print(f"{N2}  {C_DIM('网络统计:')}      {'✅ 显示' if show_ns else '❌ 隐藏'}")
+        print(f"{N2}  {C_DIM('动画速度:')}      {a_icon}")
+        print(f"{N2}  {C_DIM('进度条:')}        {'✅ 显示' if show_pb else '❌ 隐藏'}")
+        print(f"{N2}  {C_DIM('时间戳:')}        {'✅ 显示' if show_ts else '❌ 隐藏'}")
+        tw_label = C_BOLD(str(tw)) if tw > 0 else C_DIM("自动")
+        print(f"{N2}  {C_DIM('终端宽度:')}      {tw_label}")
+        print(f"{N2}  {C_DIM('玩家情绪:')}      {'✅ 显示' if spe else '❌ 隐藏'}")
+        print(f"{N2}  {C_DIM('贡献排名:')}      {'✅ 显示' if scr else '❌ 隐藏'}")
+        print(f"{N2}  {C_DIM('讨论统计:')}      {'✅ 显示' if sds else '❌ 隐藏'}")
+        print(f"{N2}  {C_DIM('紧凑模式:')}      {'✅ 启用' if cm else '❌ 禁用'}")
+        print(f"{N2}  {C_DIM('颜色主题:')}      {ct_icons.get(ct, C_BOLD(ct))}")
+        _sep(w)
+        print(f"{N2}  {C_CYAN(' [1] ')}  输出详细度     {C_DIM(f'当前: {verbosity}')}")
+        show_es_label = "显示" if show_es else "隐藏"
+        print(f"{N2}  {C_GREEN(' [2] ')}  精华评分       {C_DIM(f'当前: {show_es_label}')}")
+        show_ns_label = "显示" if show_ns else "隐藏"
+        print(f"{N2}  {C_YELLOW(' [3] ')}  网络统计       {C_DIM(f'当前: {show_ns_label}')}")
+        print(f"{N2}  {C_BLUE(' [4] ')}  动画速度       {C_DIM(f'当前: {anim}')}")
+        show_pb_label = "显示" if show_pb else "隐藏"
+        print(f"{N2}  {C_MAGENTA(' [5] ')}  进度条         {C_DIM(f'当前: {show_pb_label}')}")
+        show_ts_label = "显示" if show_ts else "隐藏"
+        print(f"{N2}  {C_WHITE(' [6] ')}  时间戳         {C_DIM(f'当前: {show_ts_label}')}")
+        print(f"{N2}  {C_RED(' [7] ')}  终端宽度覆盖   {C_DIM(f'当前: {tw_label}')}")
+        spe_label = "显示" if spe else "隐藏"
+        print(f"{N2}  {C_CYAN(' [8] ')}  玩家情绪       {C_DIM(f'当前: {spe_label}')}")
+        scr_label = "显示" if scr else "隐藏"
+        print(f"{N2}  {C_GREEN(' [9] ')}  贡献排名       {C_DIM(f'当前: {scr_label}')}")
+        sds_label = "显示" if sds else "隐藏"
+        print(f"{N2}  {C_YELLOW(' [10] ')} 讨论统计       {C_DIM(f'当前: {sds_label}')}")
+        cm_label = "启用" if cm else "禁用"
+        print(f"{N2}  {C_MAGENTA(' [11] ')} 紧凑模式       {C_DIM(f'当前: {cm_label}')}")
+        print(f"{N2}  {C_BLUE(' [12] ')} 颜色主题       {C_DIM(f'当前: {ct}')}")
+        print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
+        _close_box(w)
+        print()
+        print(f"  {C_YELLOW('▸')}  ", end="")
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-12/q]')}: ").strip().lower()
+
+        if choice == "1":
+            modes = ["minimal", "normal", "verbose"]
+            current = modes.index(verbosity) if verbosity in modes else 1
+            settings["output_verbosity"] = modes[(current + 1) % len(modes)]
+            _save_settings(settings)
+        elif choice == "2":
+            settings["show_essence_scores"] = not settings.get("show_essence_scores", True)
+            _save_settings(settings)
+        elif choice == "3":
+            settings["show_network_stats"] = not settings.get("show_network_stats", True)
+            _save_settings(settings)
+        elif choice == "4":
+            modes = ["slow", "normal", "fast"]
+            current = modes.index(anim) if anim in modes else 1
+            settings["animation_speed"] = modes[(current + 1) % len(modes)]
+            _save_settings(settings)
+        elif choice == "5":
+            settings["show_progress_bar"] = not settings.get("show_progress_bar", True)
+            _save_settings(settings)
+        elif choice == "6":
+            settings["show_timestamp"] = not settings.get("show_timestamp", False)
+            _save_settings(settings)
+        elif choice == "7":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('终端宽度(0=自动)')} {C_DIM('[0-300]')}: ").strip())
+                settings["terminal_width_override"] = max(0, min(300, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "8":
+            settings["show_player_emotion"] = not settings.get("show_player_emotion", True)
+            _save_settings(settings)
+        elif choice == "9":
+            settings["show_contribution_ranking"] = not settings.get("show_contribution_ranking", True)
+            _save_settings(settings)
+        elif choice == "10":
+            settings["show_discussion_stats"] = not settings.get("show_discussion_stats", True)
+            _save_settings(settings)
+        elif choice == "11":
+            settings["compact_mode"] = not settings.get("compact_mode", False)
+            _save_settings(settings)
+        elif choice == "12":
+            modes = ["default", "dark", "light"]
+            current = modes.index(ct) if ct in modes else 0
+            settings["color_theme"] = modes[(current + 1) % len(modes)]
+            _save_settings(settings)
+        elif choice == "q":
+            return
+
+        settings = _load_settings()
+
+
+def _system_params_menu():
+    """系统行为参数配置菜单"""
+    settings = _load_settings()
+    while True:
+        os.system("cls" if os.name == "nt" else "clear")
+        _banner()
+        print()
+        w = _box(C_RED(" 系统行为 "))
+
+        asi = settings.get("auto_save_interval", 5)
+        ckc = settings.get("checkpoint_keep_count", 10)
+        enl = settings.get("enable_logging", True)
+        ear = settings.get("enable_auto_resume", True)
+        mcs = settings.get("max_consecutive_silence", 3)
+        mdh = settings.get("max_discussion_history", 100)
+        clo = settings.get("cleanup_old_logs", False)
+        cd = settings.get("cleanup_days", 30)
+        eac = settings.get("enable_auto_checkpoint", True)
+        dl = settings.get("default_language", "zh")
+
+        dl_icons = {"zh": C_GREEN("中文"), "en": C_BLUE("English")}
+
+        print(f"{N2}  {C_DIM('自动保存间隔:')}      {C_BOLD(str(asi))}  {C_DIM('轮')}")
+        print(f"{N2}  {C_DIM('保留检查点数量:')}    {C_BOLD(str(ckc))}  {C_DIM('个')}")
+        print(f"{N2}  {C_DIM('日志记录:')}          {'✅ 开启' if enl else '❌ 关闭'}")
+        print(f"{N2}  {C_DIM('自动恢复:')}          {'✅ 开启' if ear else '❌ 关闭'}")
+        print(f"{N2}  {C_DIM('最大连续沉默:')}      {C_BOLD(str(mcs))}  {C_DIM('轮 (超时自动跳过)')}")
+        print(f"{N2}  {C_DIM('最大讨论历史:')}      {C_BOLD(str(mdh))}  {C_DIM('条 (保留历史长度)')}")
+        print(f"{N2}  {C_DIM('自动清理日志:')}      {'✅ 开启' if clo else '❌ 关闭'}")
+        print(f"{N2}  {C_DIM('日志保留天数:')}      {C_BOLD(str(cd))}  {C_DIM('天')}")
+        print(f"{N2}  {C_DIM('自动检查点:')}        {'✅ 开启' if eac else '❌ 关闭'}")
+        print(f"{N2}  {C_DIM('默认语言:')}        {dl_icons.get(dl, C_BOLD(dl))}")
+        _sep(w)
+        print(f"{N2}  {C_CYAN(' [1] ')}  自动保存间隔   {C_DIM(f'当前: {asi} 轮')}")
+        print(f"{N2}  {C_GREEN(' [2] ')}  保留检查点数   {C_DIM(f'当前: {ckc} 个')}")
+        enl_label = "开启" if enl else "关闭"
+        print(f"{N2}  {C_YELLOW(' [3] ')}  日志记录       {C_DIM(f'当前: {enl_label}')}")
+        ear_label = "开启" if ear else "关闭"
+        print(f"{N2}  {C_BLUE(' [4] ')}  自动恢复       {C_DIM(f'当前: {ear_label}')}")
+        print(f"{N2}  {C_MAGENTA(' [5] ')}  最大连续沉默   {C_DIM(f'当前: {mcs} 轮')}")
+        print(f"{N2}  {C_WHITE(' [6] ')}  最大讨论历史   {C_DIM(f'当前: {mdh} 条')}")
+        clo_label = "开启" if clo else "关闭"
+        print(f"{N2}  {C_RED(' [7] ')}  自动清理日志   {C_DIM(f'当前: {clo_label}')}")
+        print(f"{N2}  {C_CYAN(' [8] ')}  日志保留天数   {C_DIM(f'当前: {cd} 天')}")
+        eac_label = "开启" if eac else "关闭"
+        print(f"{N2}  {C_GREEN(' [9] ')}  自动检查点     {C_DIM(f'当前: {eac_label}')}")
+        print(f"{N2}  {C_YELLOW(' [10] ')} 默认语言       {C_DIM(f'当前: {dl}')}")
+        print(f"{N2}  {C_DIM(' [q] ')}  返回设置菜单")
+        _close_box(w)
+        print()
+        print(f"  {C_YELLOW('▸')}  ", end="")
+        choice = input(f"{C_BOLD('请选择')} {C_DIM('[1-10/q]')}: ").strip().lower()
+
+        if choice == "1":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('自动保存间隔(轮)')} {C_DIM('[1-50]')}: ").strip())
+                settings["auto_save_interval"] = max(1, min(50, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "2":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('保留检查点数量')} {C_DIM('[1-100]')}: ").strip())
+                settings["checkpoint_keep_count"] = max(1, min(100, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "3":
+            settings["enable_logging"] = not settings.get("enable_logging", True)
+            _save_settings(settings)
+        elif choice == "4":
+            settings["enable_auto_resume"] = not settings.get("enable_auto_resume", True)
+            _save_settings(settings)
+        elif choice == "5":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('最大连续沉默(轮)')} {C_DIM('[1-20]')}: ").strip())
+                settings["max_consecutive_silence"] = max(1, min(20, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "6":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('最大讨论历史(条)')} {C_DIM('[50-500]')}: ").strip())
+                settings["max_discussion_history"] = max(50, min(500, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "7":
+            settings["cleanup_old_logs"] = not settings.get("cleanup_old_logs", False)
+            _save_settings(settings)
+        elif choice == "8":
+            print(f"\n{N2}  ", end="")
+            try:
+                n = int(input(f"{C_CYAN('日志保留天数')} {C_DIM('[1-365]')}: ").strip())
+                settings["cleanup_days"] = max(1, min(365, n))
+                _save_settings(settings)
+            except ValueError:
+                pass
+        elif choice == "9":
+            settings["enable_auto_checkpoint"] = not settings.get("enable_auto_checkpoint", True)
+            _save_settings(settings)
+        elif choice == "10":
+            modes = ["zh", "en"]
+            current = modes.index(dl) if dl in modes else 0
+            settings["default_language"] = modes[(current + 1) % len(modes)]
+            _save_settings(settings)
+        elif choice == "q":
+            return
+
+        settings = _load_settings()
 
 
 def _get_player_configs(num: int, settings: dict) -> list:

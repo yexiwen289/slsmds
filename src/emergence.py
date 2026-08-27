@@ -39,7 +39,10 @@ import math
 import random
 import numpy as np
 from collections import Counter
-from .prompts_b64 import _get_b64_prompt
+try:
+    from .prompts_b64 import _get_b64_prompt
+except ImportError:
+    from prompts_b64 import _get_b64_prompt
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -152,12 +155,28 @@ class OpinionPhaseVector:
     }
 
     # 认知特征标记词库
-    _COHERENCE_INDICATORS = ['因为', '所以', '因此', '于是', '从而', '基于', '根据', '由此']
-    _NOVELTY_INDICATORS = ['本质上', '悖论', '辩证', '超越', '涌现', '全新', '重构', '范式', '颠覆']
-    _DEPTH_INDICATORS = ['如果', '那么', '虽然', '但是', '不仅', '而且', '另一方面', '从长远看', '根本上']
-    _DIVERGENCE_INDICATORS = ['不是', '不对', '不同意', '相反', '然而', '但是', '问题在于', '缺陷', '局限', '误区']
-    _SPECIFICITY_INDICATORS = ['%', '数据', '案例', '例子', '比如', '例如', '具体', '实际', '指标', '方案']
-    _EMOTIONAL_INDICATORS = ['！', '？', '令人', '惊讶', '遗憾', '关键', '重要', '必须', '绝对']
+    _COHERENCE_INDICATORS = ['因为', '所以', '因此', '于是', '从而', '基于', '根据', '由此',
+                             '由于', '导致', '使得', '意味着', '说明', '表明', '证明']
+    _NOVELTY_INDICATORS = ['本质上', '悖论', '辩证', '超越', '涌现', '全新', '重构', '范式', '颠覆',
+                           '突破', '独创', '前所未有的', '重新定义', '解构', '反直觉', '非传统',
+                           '真正', '恰恰', '反而', '殊不知']
+    _DEPTH_INDICATORS = ['如果', '那么', '虽然', '但是', '不仅', '而且', '另一方面', '从长远看', '根本上',
+                         '然而', '其实', '实际上', '深入', '归根结底', '追根溯源', '进一步',
+                         '恰恰', '恰恰是', '更深层', '本质上', '究其根本', '换言之', '退一步',
+                         '看似', '实则', '表层面', '底层', '维度']
+    _DIVERGENCE_INDICATORS = ['不是', '不对', '不同意', '相反', '然而', '但是', '问题在于', '缺陷', '局限', '误区',
+                              '而我不', '却不', '并非', '并不', '不要', '而不是', '而非', '无需',
+                              '拒绝', '反驳', '质疑', '挑战', '否定', '打破', '解构', '不服从',
+                              '不卡', '不盲从', '不应该是', '不应该', '恰恰不是', '绝非', '远非',
+                              '并不需要', '也不需要', '并不服从', '不服从', '不叛逆']
+    _SPECIFICITY_INDICATORS = ['%', '数据', '案例', '例子', '比如', '例如', '具体', '实际', '指标', '方案',
+                               '步骤', '工具', '方法', '流程', '参数', '函数', '代码', '数值',
+                               '量化', '可操作', '可执行', '直接']
+    _EMOTIONAL_INDICATORS = ['！', '？', '令人', '惊讶', '遗憾', '关键', '重要', '必须', '绝对',
+                              '恐惧', '害怕', '担忧', '焦虑', '不安', '愤怒', '悲伤', '痛苦',
+                              '快乐', '喜悦', '希望', '热爱', '敬畏', '震撼', '惊叹', '感动',
+                              '迷恋', '空洞', '虚无', '空洞符号', '焦虑', '存在', '造出', '收敛',
+                              '骄傲', '自信', '傲慢', '臣服', '服从', '叛逆', '情感', '共鸣']
 
     def __init__(self, text: str, player_name: str = "", problem: str = ""):
         self.text = text
@@ -2425,7 +2444,10 @@ class PhaseTransitionEngine:
         这模拟了"认知的螺旋上升"——每个层次的涌现
         都成为下一层次涌现的输入。
         """
-        from .prompts_b64 import _get_b64_prompt
+        try:
+            from .prompts_b64 import _get_b64_prompt
+        except ImportError:
+            from prompts_b64 import _get_b64_prompt
 
         current_level = self.compute_emergence_level()
         max_level = current_level
